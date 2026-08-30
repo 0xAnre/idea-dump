@@ -1,0 +1,13 @@
+[Unit]
+Description=Idea Dump
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+WorkingDirectory=/path/to/repository
+EnvironmentFile=/path/to/repository/.env
+ExecStart=/usr/bin/python3 main.py
+
+[Install]
+WantedBy=multi-user.target
