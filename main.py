@@ -40,18 +40,29 @@ Do not invent information. Do not add new ideas. Do not unnecessarily expand or 
 The input may be rough, incomplete, informal Turkish."""
 
 
-def _parse_title_and_clean_text(content: str) -> tuple[str, str]:
-    text = content.strip()
+def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
+    if content is None or not str(content).strip():
+        raise ValueError("OpenRouter response empty")
+    text = str(content).strip()
     if text.startswith("```"):
         text = text.strip("`")
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
-    data = json.loads(text)
+    if not text:
+        raise ValueError("OpenRouter response empty")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("OpenRouter response is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("OpenRouter response is not valid JSON")
     title = data.get("title")
     clean_text = data.get("clean_text")
-    if not title or not clean_text:
-        raise ValueError("OpenRouter response missing title or clean_text")
+    if not title:
+        raise ValueError("OpenRouter response missing title")
+    if not clean_text:
+        raise ValueError("OpenRouter response missing clean_text")
     return str(title), str(clean_text)
 
 
@@ -74,7 +85,10 @@ async def rewrite_with_openrouter(original_text: str) -> tuple[str, str]:
             f"OpenRouter request failed: {response.status_code} {response.text}"
         )
     body = response.json()
-    content = body["choices"][0]["message"]["content"]
+    try:
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("OpenRouter response empty") from exc
     return _parse_title_and_clean_text(content)
 
 
@@ -169,7 +183,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     image_file_id = message.photo[-1].file_id if message.photo else None
     video_file_id = message.video.file_id if message.video else None
 
-    title, clean_text = await rewrite_with_openrouter(original_text)
+    try:
+        title, clean_text = await rewrite_with_openrouter(original_text)
+    except ValueError as exc:
+        print(f"OpenRouter rewrite failed: {exc}", flush=True)
+        return
+
     idea_id = next_idea_id()
 
     image_ref = None
