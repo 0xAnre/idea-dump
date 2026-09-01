@@ -4,3 +4,7 @@ __pycache__/
 knowledge-base/ideas/*.md
 knowledge-base/ideas/assets/*
 !knowledge-base/ideas/assets/.gitkeep
+knowledge-base/topics/*.md
+!knowledge-base/topics/.gitkeep
+knowledge-base/assets/*
+!knowledge-base/assets/.gitkeep
