@@ -173,13 +173,118 @@ def _append_line(path: Path, line: str) -> None:
     path.write_text(text + line + "\n", encoding="utf-8")
 
 
-def update_index(idea_id: str, title: str, filename: str) -> None:
-    _append_line(INDEX_PATH, f"- {idea_id} — [{title}](ideas/{filename})")
+def rebuild_index(
+    *,
+    ideas_dir: Path | None = None,
+    topics_dir: Path | None = None,
+    index_path: Path | None = None,
+) -> str:
+    ideas_dir = ideas_dir if ideas_dir is not None else IDEAS_DIR
+    topics_dir = topics_dir if topics_dir is not None else TOPICS_DIR
+    index_path = index_path if index_path is not None else INDEX_PATH
+    topics: list[dict] = []
+    if topics_dir.is_dir():
+        for path in topics_dir.glob("*.md"):
+            topics.append(
+                parse_topic_markdown(path.name, path.read_text(encoding="utf-8"))
+            )
+    topics.sort(key=lambda topic: (topic["title"].casefold(), topic["slug"]))
+    ideas: list[dict] = []
+    if ideas_dir.is_dir():
+        for path in ideas_dir.glob("*.md"):
+            if _idea_id_from_filename(path.name) is None:
+                continue
+            ideas.append(
+                parse_idea_markdown(path.name, path.read_text(encoding="utf-8"))
+            )
+    ideas.sort(key=lambda idea: int(idea["id"]))
+    parts = ["# Idea Dump\n"]
+    if topics:
+        parts.append("\n## Topics\n\n")
+        for topic in topics:
+            parts.append(f"- [{topic['title']}](topics/{topic['slug']}.md)\n")
+    if ideas:
+        parts.append("\n## Ideas\n\n")
+        for idea in ideas:
+            parts.append(
+                f"- {idea['id']} — [{idea['title']}](ideas/{idea['filename']})\n"
+            )
+    text = "".join(parts)
+    index_path.write_text(text, encoding="utf-8")
+    return text
 
 
-def update_log(idea_id: str, title: str) -> None:
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    _append_line(LOG_PATH, f"- {stamp} — Added {idea_id} — {title}")
+def append_wiki_log(
+    idea_id: str,
+    title: str,
+    created_topic_titles: list[str] | None = None,
+    *,
+    log_path: Path | None = None,
+    now: datetime | None = None,
+) -> str:
+    log_path = log_path if log_path is not None else LOG_PATH
+    stamp = (now if now is not None else datetime.now()).strftime("%Y-%m-%d %H:%M")
+    line = f"- {stamp} — Added {idea_id} — {title}"
+    if created_topic_titles:
+        line += f"; created topic {', '.join(created_topic_titles)}"
+    if not log_path.exists():
+        log_path.write_text("# Log\n", encoding="utf-8")
+    _append_line(log_path, line)
+    return line
+
+
+def after_capture_index_and_log(
+    idea_id: str,
+    title: str,
+    decision: dict | None,
+    *,
+    ideas_dir: Path | None = None,
+    topics_dir: Path | None = None,
+    index_path: Path | None = None,
+    log_path: Path | None = None,
+    now: datetime | None = None,
+) -> None:
+    rebuild_index(
+        ideas_dir=ideas_dir,
+        topics_dir=topics_dir,
+        index_path=index_path,
+    )
+    created: list[str] = []
+    if decision:
+        created = [item["title"] for item in decision.get("create_topics") or []]
+    append_wiki_log(
+        idea_id,
+        title,
+        created,
+        log_path=log_path,
+        now=now,
+    )
+
+
+def try_after_capture_index_and_log(
+    idea_id: str,
+    title: str,
+    decision: dict | None,
+    *,
+    ideas_dir: Path | None = None,
+    topics_dir: Path | None = None,
+    index_path: Path | None = None,
+    log_path: Path | None = None,
+    now: datetime | None = None,
+) -> None:
+    try:
+        after_capture_index_and_log(
+            idea_id,
+            title,
+            decision,
+            ideas_dir=ideas_dir,
+            topics_dir=topics_dir,
+            index_path=index_path,
+            log_path=log_path,
+            now=now,
+        )
+    except Exception as exc:
+        print(f"Index/log update failed: {exc}", flush=True)
 
 
 def _idea_id_from_filename(name: str) -> str | None:
@@ -596,9 +701,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         image_ref,
         video_ref,
     )
-    update_index(idea_id, title, idea_path.name)
-    update_log(idea_id, title)
-    await run_wiki_maintainer(idea_id, title, clean_text, idea_path.name)
+    decision = await run_wiki_maintainer(idea_id, title, clean_text, idea_path.name)
+    try_after_capture_index_and_log(idea_id, title, decision)
 
     print(
         {
