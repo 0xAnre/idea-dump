@@ -26,10 +26,13 @@ if not OPENROUTER_MODEL:
     sys.exit("OPENROUTER_MODEL is missing")
 
 IDEAS_DIR = BASE_DIR / "knowledge-base" / "ideas"
+TOPICS_DIR = BASE_DIR / "knowledge-base" / "topics"
+SCHEMA_PATH = BASE_DIR / "knowledge-base" / "schema.md"
 ASSETS_DIR = IDEAS_DIR / "assets"
 INDEX_PATH = IDEAS_DIR.parent / "index.md"
 LOG_PATH = IDEAS_DIR.parent / "log.md"
 IDEA_ID_PREFIX = re.compile(r"^(\d+)-")
+IDEA_LINK_ID = re.compile(r"ideas/(\d+)-")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 REWRITE_SYSTEM_PROMPT = """You rewrite Telegram messages into English.
 Return JSON only with keys "title" and "clean_text".
@@ -38,9 +41,20 @@ Return JSON only with keys "title" and "clean_text".
 Understand the intended meaning. Preserve the original meaning and relevant details.
 Do not invent information. Do not add new ideas. Do not unnecessarily expand or reinterpret the message.
 The input may be rough, incomplete, informal Turkish."""
+MAINTAINER_SYSTEM_PROMPT = """You are the Wiki Maintainer for Idea Dump.
+Place a new canonical Idea into the existing Markdown wiki.
+Return JSON only with keys "use_topic_slugs", "create_topics", and "related_idea_ids".
+Do not rewrite the Idea title or body. Do not return title or clean_text.
+Prefer an existing Topic when it already covers the Idea.
+Create a Topic only when no existing Topic fits.
+Link related Ideas only when the relationship is meaningful, not to fill a graph.
+use_topic_slugs: slugs of existing Topics to attach.
+create_topics: array of {"title", "slug"} for new Topics. Slugs must not collide with existing Topics.
+related_idea_ids: IDs of existing Ideas, never the new Idea.
+Use empty arrays when none apply."""
 
 
-def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
+def _strip_json_fences(content: str | None) -> str:
     if content is None or not str(content).strip():
         raise ValueError("OpenRouter response empty")
     text = str(content).strip()
@@ -51,12 +65,22 @@ def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
         text = text.strip()
     if not text:
         raise ValueError("OpenRouter response empty")
+    return text
+
+
+def _parse_json_object(content: str | None) -> dict:
+    text = _strip_json_fences(content)
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValueError("OpenRouter response is not valid JSON") from exc
     if not isinstance(data, dict):
         raise ValueError("OpenRouter response is not valid JSON")
+    return data
+
+
+def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
+    data = _parse_json_object(content)
     title = data.get("title")
     clean_text = data.get("clean_text")
     if not title:
@@ -66,12 +90,12 @@ def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
     return str(title), str(clean_text)
 
 
-async def rewrite_with_openrouter(original_text: str) -> tuple[str, str]:
+async def _openrouter_chat(system_prompt: str, user_content: str) -> str:
     payload = {
         "model": OPENROUTER_MODEL,
         "messages": [
-            {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
-            {"role": "user", "content": original_text},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
         ],
     }
     headers = {
@@ -89,6 +113,11 @@ async def rewrite_with_openrouter(original_text: str) -> tuple[str, str]:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("OpenRouter response empty") from exc
+    return content
+
+
+async def rewrite_with_openrouter(original_text: str) -> tuple[str, str]:
+    content = await _openrouter_chat(REWRITE_SYSTEM_PROMPT, original_text)
     return _parse_title_and_clean_text(content)
 
 
@@ -110,12 +139,10 @@ def title_slug(title: str) -> str:
 def idea_markdown(
     title: str,
     clean_text: str,
-    original_text: str,
     image_ref: str | None = None,
     video_ref: str | None = None,
 ) -> str:
-    quoted = "\n".join(f"> {line}" for line in original_text.splitlines())
-    body = f"# {title}\n\n{clean_text}\n\n## Original Message\n\n{quoted}\n"
+    body = f"# {title}\n\n{clean_text}\n"
     if image_ref:
         body += f"\n![]({image_ref})\n"
     if video_ref:
@@ -127,14 +154,13 @@ def write_idea_file(
     idea_id: str,
     title: str,
     clean_text: str,
-    original_text: str,
     image_ref: str | None = None,
     video_ref: str | None = None,
 ) -> Path:
     filename = f"{idea_id}-{title_slug(title)}.md"
     path = IDEAS_DIR / filename
     path.write_text(
-        idea_markdown(title, clean_text, original_text, image_ref, video_ref),
+        idea_markdown(title, clean_text, image_ref, video_ref),
         encoding="utf-8",
     )
     return path
@@ -154,6 +180,361 @@ def update_index(idea_id: str, title: str, filename: str) -> None:
 def update_log(idea_id: str, title: str) -> None:
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     _append_line(LOG_PATH, f"- {stamp} — Added {idea_id} — {title}")
+
+
+def _idea_id_from_filename(name: str) -> str | None:
+    match = IDEA_ID_PREFIX.match(name)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def parse_idea_markdown(filename: str, text: str) -> dict:
+    idea_id = _idea_id_from_filename(filename)
+    if idea_id is None:
+        raise ValueError(f"Invalid idea filename: {filename}")
+    title = ""
+    body_lines: list[str] = []
+    started = False
+    for line in text.splitlines():
+        if not started:
+            if line.startswith("# "):
+                title = line[2:].strip()
+                started = True
+            continue
+        if line.startswith("## Original Message"):
+            break
+        if line.startswith("## Topics"):
+            break
+        if line.startswith("## Related Ideas"):
+            break
+        stripped = line.strip()
+        if stripped.startswith("![](") or stripped.startswith("[Video]("):
+            continue
+        body_lines.append(line)
+    return {
+        "id": idea_id,
+        "title": title,
+        "clean_text": "\n".join(body_lines).strip(),
+        "filename": filename,
+    }
+
+
+def parse_topic_markdown(filename: str, text: str) -> dict:
+    slug = Path(filename).stem
+    title = ""
+    linked: list[str] = []
+    seen: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("# ") and not title:
+            title = line[2:].strip()
+        for match in IDEA_LINK_ID.finditer(line):
+            idea_id = match.group(1)
+            if idea_id not in seen:
+                seen.add(idea_id)
+                linked.append(idea_id)
+    return {
+        "slug": slug,
+        "title": title,
+        "linked_idea_ids": linked,
+    }
+
+
+def build_maintainer_context(
+    new_idea_id: str,
+    title: str,
+    clean_text: str,
+    filename: str,
+    *,
+    ideas_dir: Path | None = None,
+    topics_dir: Path | None = None,
+    schema_path: Path | None = None,
+) -> dict:
+    ideas_dir = ideas_dir if ideas_dir is not None else IDEAS_DIR
+    topics_dir = topics_dir if topics_dir is not None else TOPICS_DIR
+    schema_path = schema_path if schema_path is not None else SCHEMA_PATH
+    existing_ideas = []
+    for path in sorted(ideas_dir.glob("*.md")):
+        parsed = parse_idea_markdown(path.name, path.read_text(encoding="utf-8"))
+        if parsed["id"] == new_idea_id:
+            continue
+        existing_ideas.append(
+            {
+                "id": parsed["id"],
+                "title": parsed["title"],
+                "clean_text": parsed["clean_text"],
+            }
+        )
+    existing_topics = []
+    if topics_dir.is_dir():
+        for path in sorted(topics_dir.glob("*.md")):
+            existing_topics.append(
+                parse_topic_markdown(path.name, path.read_text(encoding="utf-8"))
+            )
+    return {
+        "schema": schema_path.read_text(encoding="utf-8"),
+        "new_idea": {
+            "id": new_idea_id,
+            "title": title,
+            "clean_text": clean_text,
+            "filename": filename,
+        },
+        "existing_topics": existing_topics,
+        "existing_ideas": existing_ideas,
+    }
+
+
+def validate_maintainer_decision(data: dict, context: dict) -> dict:
+    required = ("use_topic_slugs", "create_topics", "related_idea_ids")
+    extra = set(data.keys()) - set(required)
+    missing = [key for key in required if key not in data]
+    if missing:
+        raise ValueError(f"Maintainer response missing keys: {', '.join(missing)}")
+    if extra:
+        raise ValueError(f"Maintainer response has unexpected keys: {', '.join(sorted(extra))}")
+
+    use_topic_slugs = data["use_topic_slugs"]
+    create_topics = data["create_topics"]
+    related_idea_ids = data["related_idea_ids"]
+    if not isinstance(use_topic_slugs, list):
+        raise ValueError("use_topic_slugs must be a list")
+    if not isinstance(create_topics, list):
+        raise ValueError("create_topics must be a list")
+    if not isinstance(related_idea_ids, list):
+        raise ValueError("related_idea_ids must be a list")
+
+    existing_topic_slugs = {
+        topic["slug"] for topic in context["existing_topics"]
+    }
+    existing_idea_ids = {idea["id"] for idea in context["existing_ideas"]}
+    new_idea_id = context["new_idea"]["id"]
+
+    seen_use: set[str] = set()
+    normalized_use: list[str] = []
+    for slug in use_topic_slugs:
+        if not isinstance(slug, str) or not slug.strip():
+            raise ValueError("use_topic_slugs items must be non-empty strings")
+        if slug in seen_use:
+            raise ValueError(f"Duplicate Topic slug: {slug}")
+        if slug not in existing_topic_slugs:
+            raise ValueError(f"Unknown Topic slug: {slug}")
+        seen_use.add(slug)
+        normalized_use.append(slug)
+
+    seen_create: set[str] = set()
+    normalized_create: list[dict] = []
+    for item in create_topics:
+        if not isinstance(item, dict):
+            raise ValueError("create_topics items must be objects")
+        if set(item.keys()) != {"title", "slug"}:
+            raise ValueError("create_topics items must have only title and slug")
+        topic_title = item["title"]
+        topic_slug = item["slug"]
+        if not isinstance(topic_title, str) or not topic_title.strip():
+            raise ValueError("create_topics title must be a non-empty string")
+        if not isinstance(topic_slug, str) or not topic_slug.strip():
+            raise ValueError("create_topics slug must be a non-empty string")
+        if topic_slug in seen_create:
+            raise ValueError(f"Duplicate Topic slug: {topic_slug}")
+        if topic_slug in existing_topic_slugs or topic_slug in seen_use:
+            raise ValueError(f"Topic slug collision: {topic_slug}")
+        seen_create.add(topic_slug)
+        normalized_create.append({"title": topic_title, "slug": topic_slug})
+
+    seen_related: set[str] = set()
+    normalized_related: list[str] = []
+    for idea_id in related_idea_ids:
+        if not isinstance(idea_id, str) or not idea_id.strip():
+            raise ValueError("related_idea_ids items must be non-empty strings")
+        if idea_id == new_idea_id:
+            raise ValueError("related_idea_ids must not include the new Idea")
+        if idea_id not in existing_idea_ids:
+            raise ValueError(f"Unknown Idea ID: {idea_id}")
+        if idea_id in seen_related:
+            raise ValueError(f"Duplicate related Idea ID: {idea_id}")
+        seen_related.add(idea_id)
+        normalized_related.append(idea_id)
+
+    return {
+        "use_topic_slugs": normalized_use,
+        "create_topics": normalized_create,
+        "related_idea_ids": normalized_related,
+    }
+
+
+def parse_maintainer_decision(content: str | None, context: dict) -> dict:
+    data = _parse_json_object(content)
+    return validate_maintainer_decision(data, context)
+
+
+def topic_markdown(title: str, idea_title: str, idea_filename: str) -> str:
+    return (
+        f"# {title}\n\n"
+        f"## Ideas\n\n"
+        f"- [{idea_title}](../ideas/{idea_filename})\n"
+    )
+
+
+def _idea_file_for_id(ideas_dir: Path, idea_id: str) -> Path:
+    matches = [
+        path
+        for path in ideas_dir.glob("*.md")
+        if _idea_id_from_filename(path.name) == idea_id
+    ]
+    if not matches:
+        raise ValueError(f"Idea file not found for ID: {idea_id}")
+    return matches[0]
+
+
+def _markdown_has_target(text: str, target: str) -> bool:
+    return f"]({target})" in text
+
+
+def _append_list_item(text: str, heading: str, item_line: str, target: str) -> str:
+    if _markdown_has_target(text, target):
+        return text if text.endswith("\n") else text + "\n"
+    item_line = item_line.rstrip("\n")
+    lines = text.splitlines()
+    heading_idx = next(
+        (i for i, line in enumerate(lines) if line.strip() == heading),
+        None,
+    )
+    if heading_idx is None:
+        body = text.rstrip()
+        if body:
+            body += "\n\n"
+        return f"{body}{heading}\n\n{item_line}\n"
+    end_idx = heading_idx + 1
+    while end_idx < len(lines) and not lines[end_idx].startswith("## "):
+        end_idx += 1
+    insert_at = heading_idx + 1
+    for i in range(end_idx - 1, heading_idx, -1):
+        if lines[i].strip():
+            insert_at = i + 1
+            break
+    if insert_at == heading_idx + 1:
+        lines.insert(insert_at, "")
+        insert_at += 1
+    lines.insert(insert_at, item_line)
+    return "\n".join(lines) + "\n"
+
+
+def _add_idea_to_topic(path: Path, idea_title: str, idea_filename: str) -> None:
+    target = f"../ideas/{idea_filename}"
+    text = path.read_text(encoding="utf-8")
+    idea_id = _idea_id_from_filename(idea_filename)
+    if idea_id and f"](../ideas/{idea_id}-" in text:
+        return
+    updated = _append_list_item(
+        text,
+        "## Ideas",
+        f"- [{idea_title}]({target})",
+        target,
+    )
+    path.write_text(updated, encoding="utf-8")
+
+
+def apply_maintainer_decision(
+    decision: dict,
+    new_idea_id: str,
+    title: str,
+    filename: str,
+    *,
+    ideas_dir: Path | None = None,
+    topics_dir: Path | None = None,
+) -> None:
+    ideas_dir = ideas_dir if ideas_dir is not None else IDEAS_DIR
+    topics_dir = topics_dir if topics_dir is not None else TOPICS_DIR
+    use_topic_slugs = decision["use_topic_slugs"]
+    create_topics = decision["create_topics"]
+    related_idea_ids = decision["related_idea_ids"]
+    if not use_topic_slugs and not create_topics and not related_idea_ids:
+        return
+
+    topics_dir.mkdir(parents=True, exist_ok=True)
+    topic_entries: list[tuple[str, str]] = []
+    for slug in use_topic_slugs:
+        path = topics_dir / f"{slug}.md"
+        parsed = parse_topic_markdown(path.name, path.read_text(encoding="utf-8"))
+        _add_idea_to_topic(path, title, filename)
+        topic_entries.append((parsed["title"], slug))
+    for item in create_topics:
+        path = topics_dir / f"{item['slug']}.md"
+        if not path.exists():
+            path.write_text(
+                topic_markdown(item["title"], title, filename),
+                encoding="utf-8",
+            )
+        else:
+            _add_idea_to_topic(path, title, filename)
+        topic_entries.append((item["title"], item["slug"]))
+
+    related_entries: list[tuple[str, str, Path]] = []
+    for idea_id in related_idea_ids:
+        related_path = _idea_file_for_id(ideas_dir, idea_id)
+        parsed = parse_idea_markdown(
+            related_path.name,
+            related_path.read_text(encoding="utf-8"),
+        )
+        related_entries.append((parsed["title"], related_path.name, related_path))
+
+    new_path = ideas_dir / filename
+    new_text = new_path.read_text(encoding="utf-8")
+    for topic_title, slug in topic_entries:
+        target = f"../topics/{slug}.md"
+        new_text = _append_list_item(
+            new_text,
+            "## Topics",
+            f"- [{topic_title}]({target})",
+            target,
+        )
+    for related_title, related_filename, _related_path in related_entries:
+        new_text = _append_list_item(
+            new_text,
+            "## Related Ideas",
+            f"- [{related_title}]({related_filename})",
+            related_filename,
+        )
+    new_path.write_text(new_text, encoding="utf-8")
+
+    new_target = filename
+    for _related_title, _related_filename, related_path in related_entries:
+        related_text = related_path.read_text(encoding="utf-8")
+        related_text = _append_list_item(
+            related_text,
+            "## Related Ideas",
+            f"- [{title}]({new_target})",
+            new_target,
+        )
+        related_path.write_text(related_text, encoding="utf-8")
+
+
+async def maintainer_with_openrouter(context: dict) -> dict:
+    user_content = json.dumps(context, ensure_ascii=False, indent=2)
+    content = await _openrouter_chat(MAINTAINER_SYSTEM_PROMPT, user_content)
+    return parse_maintainer_decision(content, context)
+
+
+async def run_wiki_maintainer(
+    new_idea_id: str,
+    title: str,
+    clean_text: str,
+    filename: str,
+) -> dict | None:
+    try:
+        context = build_maintainer_context(
+            new_idea_id,
+            title,
+            clean_text,
+            filename,
+        )
+        decision = await maintainer_with_openrouter(context)
+        apply_maintainer_decision(decision, new_idea_id, title, filename)
+    except Exception as exc:
+        print(f"Wiki Maintainer failed: {exc}", flush=True)
+        return None
+    print({"wiki_maintainer_decision": decision}, flush=True)
+    return decision
 
 
 def media_extension(file_path: str | None) -> str:
@@ -212,12 +593,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         idea_id,
         title,
         clean_text,
-        original_text,
         image_ref,
         video_ref,
     )
     update_index(idea_id, title, idea_path.name)
     update_log(idea_id, title)
+    await run_wiki_maintainer(idea_id, title, clean_text, idea_path.name)
 
     print(
         {
