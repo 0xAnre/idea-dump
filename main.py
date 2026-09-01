@@ -28,7 +28,7 @@ if not OPENROUTER_MODEL:
 IDEAS_DIR = BASE_DIR / "knowledge-base" / "ideas"
 TOPICS_DIR = BASE_DIR / "knowledge-base" / "topics"
 SCHEMA_PATH = BASE_DIR / "knowledge-base" / "schema.md"
-ASSETS_DIR = IDEAS_DIR / "assets"
+ASSETS_DIR = BASE_DIR / "knowledge-base" / "assets"
 INDEX_PATH = IDEAS_DIR.parent / "index.md"
 LOG_PATH = IDEAS_DIR.parent / "log.md"
 IDEA_ID_PREFIX = re.compile(r"^(\d+)-")
@@ -134,6 +134,14 @@ def title_slug(title: str) -> str:
     slug = title.lower().replace(" ", "-")
     slug = re.sub(r"[^a-z0-9-]", "", slug)
     return slug.strip("-")
+
+
+def media_dest(idea_id: str, kind: str) -> Path:
+    return ASSETS_DIR / f"{idea_id}-{kind}"
+
+
+def media_ref(filename: str) -> str:
+    return f"../assets/{filename}"
 
 
 def idea_markdown(
@@ -683,16 +691,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         image_name = await download_media(
             context.bot,
             image_file_id,
-            ASSETS_DIR / f"{idea_id}-image",
+            media_dest(idea_id, "image"),
         )
-        image_ref = f"assets/{image_name}"
+        image_ref = media_ref(image_name)
     if video_file_id:
         video_name = await download_media(
             context.bot,
             video_file_id,
-            ASSETS_DIR / f"{idea_id}-video",
+            media_dest(idea_id, "video"),
         )
-        video_ref = f"assets/{video_name}"
+        video_ref = media_ref(video_name)
 
     idea_path = write_idea_file(
         idea_id,

@@ -28,24 +28,25 @@ class CanonicalIdeaFormatTests(unittest.TestCase):
         self.assertNotIn("![](", body)
         self.assertNotIn("[Video](", body)
 
-    def test_image_idea_uses_existing_assets_path(self) -> None:
+    def test_image_idea_uses_top_level_assets_path(self) -> None:
         body = main.idea_markdown(
             "This Is How Börek Should Be",
             "This is what börek should be like.",
-            image_ref="assets/003-image.jpg",
+            image_ref="../assets/003-image.jpg",
         )
-        self.assertIn("![](assets/003-image.jpg)", body)
+        self.assertIn("![](../assets/003-image.jpg)", body)
         self.assertNotIn("## Original Message", body)
-        self.assertNotIn("../assets/", body)
+        self.assertNotIn("](assets/", body)
 
-    def test_video_idea_uses_existing_assets_path(self) -> None:
+    def test_video_idea_uses_top_level_assets_path(self) -> None:
         body = main.idea_markdown(
             "Lifeguard in Da Nang",
             "There is a lifeguard in Da Nang.",
-            video_ref="assets/004-video.mp4",
+            video_ref="../assets/004-video.mp4",
         )
-        self.assertIn("[Video](assets/004-video.mp4)", body)
+        self.assertIn("[Video](../assets/004-video.mp4)", body)
         self.assertNotIn("## Original Message", body)
+        self.assertNotIn("](assets/", body)
 
     def test_filename_and_id_unchanged(self) -> None:
         self.assertEqual(
