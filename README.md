@@ -131,3 +131,7 @@ python -m unittest discover -s tests
 ## Scripts
 
 `scripts/` holds one-off migrators for older Idea Dump wikis. A fresh install does not need them.
+
+## License
+
+MIT
