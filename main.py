@@ -40,13 +40,15 @@ IDEA_BODY_STOP_HEADINGS = (
     "## Source",
 )
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-REWRITE_SYSTEM_PROMPT = """You rewrite Telegram messages into English.
+REWRITE_SYSTEM_PROMPT = """You rewrite Telegram messages into canonical English Ideas.
+The input may be in any language. Understand it in that language.
 Return JSON only with keys "title" and "clean_text".
 "title": a short descriptive English title.
-"clean_text": a clear, natural, grammatically correct English rewrite.
-Understand the intended meaning. Preserve the original meaning and relevant details.
+"clean_text": a clear, natural, grammatically correct English Idea body.
+Preserve the original meaning and relevant details.
 Do not invent information. Do not add new ideas. Do not unnecessarily expand or reinterpret the message.
-The input may be rough, incomplete, informal Turkish."""
+If the input is already English, clean grammar and clarity; do not translate or rephrase it without need.
+Do not return the original Telegram text. That is stored separately as Source."""
 MAINTAINER_SYSTEM_PROMPT = """You are the Wiki Maintainer for Idea Dump.
 Place a new canonical Idea into the existing Markdown wiki.
 Return JSON only with keys "use_topic_slugs", "create_topics", "related_idea_ids", and "tags".

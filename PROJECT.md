@@ -8,7 +8,7 @@ Core experience:
 
 Telegram → LLM → Living Post-Idea Wiki → Markdown (Obsidian optional)
 
-A rough Telegram message is the capture input.
+A rough Telegram message is the capture input. It may be in any language.
 
 The LLM converts that input into a clean, grammatical English Post Idea while preserving its original meaning.
 

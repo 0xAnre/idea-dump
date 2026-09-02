@@ -8,7 +8,7 @@ Capture → Normalize → Store → Connect → Organize → Maintain
 
 The fundamental unit of the system is the Post Idea.
 
-A Post Idea begins as a rough Telegram input. The wiki stores a canonical English Idea plus the original Telegram text as Source provenance.
+A Post Idea begins as a rough Telegram input in any language. The wiki stores a canonical English Idea plus the original Telegram text as Source provenance.
 
 The system preserves individual Ideas while continuously organizing their relationships through Topics and links.
 

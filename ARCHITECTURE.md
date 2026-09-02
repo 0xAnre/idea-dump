@@ -22,7 +22,7 @@ Optional Obsidian
 
 Telegram is the capture interface.
 
-A message containing a post idea enters the system as raw input. That exact text is later stored as the Idea’s Source.
+A message containing a post idea enters the system as raw input in any language. That exact text is later stored as the Idea’s Source.
 
 ## Normalization
 

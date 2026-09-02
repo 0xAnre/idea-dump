@@ -10,6 +10,8 @@ Telegram → LLM → Markdown Wiki → Tags / Topics / Related Ideas
 - Automatically clean and organize them
 - Keep everything as portable Markdown
 
+Send an idea in any language; Idea Dump turns it into canonical English.
+
 Obsidian is optional.
 
 ```mermaid

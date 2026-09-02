@@ -6,7 +6,7 @@ This file defines the wiki’s structure, concepts, and maintenance rules for th
 
 ## Purpose
 
-Capture post ideas, normalize them into canonical English Ideas, store them as Markdown with Source provenance, and keep the collection coherent as it grows.
+Capture post ideas in any language, normalize them into canonical English Ideas, store them as Markdown with Source provenance, and keep the collection coherent as it grows.
 
 Telegram is the capture interface. The wiki’s product is Post Ideas and their organization.
 
