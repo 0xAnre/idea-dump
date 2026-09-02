@@ -727,5 +727,180 @@ class WikiMaintainerTagTests(unittest.TestCase):
             main.SCHEMA_PATH = original_schema
 
 
+class WikiMaintainerIntegrationProofTests(unittest.TestCase):
+    def test_full_maintainer_decision_applies_all_four_fields(self) -> None:
+        ideas, topics, _schema = _wiki()
+        original = "illa her sey icin agent kullanmaya gerek yok"
+        new_path = ideas / "003-no-need-for-agents-in-everything.md"
+        new_path.write_text(
+            _v2_idea(
+                "003",
+                "No Need for Agents in Everything",
+                "You don't need to use an agent for everything.",
+                original,
+            ),
+            encoding="utf-8",
+        )
+        main.apply_maintainer_decision(
+            {
+                "use_topic_slugs": ["cooking"],
+                "create_topics": [{"title": "Agents", "slug": "agents"}],
+                "related_idea_ids": ["001"],
+                "tags": ["vietnam", "season"],
+            },
+            "003",
+            "No Need for Agents in Everything",
+            new_path.name,
+            ideas_dir=ideas,
+            topics_dir=topics,
+        )
+        text = new_path.read_text(encoding="utf-8")
+        self.assertEqual(main.parse_idea_tags(text), ["vietnam", "season"])
+        self.assertIn("- [Cooking](../topics/cooking.md)", text)
+        self.assertIn("- [Agents](../topics/agents.md)", text)
+        self.assertIn("- [Start Command](001-start-command.md)", text)
+        self.assertEqual(main.recover_source_from_idea(text), original)
+        self.assertLess(text.index("## Topics"), text.index("## Source"))
+        self.assertLess(text.index("## Related Ideas"), text.index("## Source"))
+        cooking = (topics / "cooking.md").read_text(encoding="utf-8")
+        agents = (topics / "agents.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "- [This Is How Börek Should Be](../ideas/002-borek.md)",
+            cooking,
+        )
+        self.assertIn(
+            "- [No Need for Agents in Everything]"
+            "(../ideas/003-no-need-for-agents-in-everything.md)",
+            cooking,
+        )
+        self.assertEqual(
+            agents,
+            "# Agents\n\n"
+            "## Ideas\n\n"
+            "- [No Need for Agents in Everything]"
+            "(../ideas/003-no-need-for-agents-in-everything.md)\n",
+        )
+        parsed = main.parse_idea_markdown(new_path.name, text)
+        self.assertEqual(
+            parsed["clean_text"],
+            "You don't need to use an agent for everything.",
+        )
+
+    def test_v2_reciprocal_target_is_stable_except_related_insertion(self) -> None:
+        ideas, topics, _schema = _wiki()
+        target_source = "danangda yasamak"
+        target = ideas / "010-getting-used-to-da-nang.md"
+        target_text = _v2_idea(
+            "010",
+            "Getting Used to Da Nang",
+            "Getting used to Da Nang takes time.",
+            target_source,
+            ["da-nang"],
+        )
+        target_text = main._append_list_item(
+            target_text,
+            "## Topics",
+            "- [Cooking](../topics/cooking.md)",
+            "../topics/cooking.md",
+        )
+        target.write_text(target_text, encoding="utf-8")
+        before = target.read_text(encoding="utf-8")
+        new_path = ideas / "003-no-need-for-agents-in-everything.md"
+        new_path.write_text(
+            _v2_idea(
+                "003",
+                "No Need for Agents in Everything",
+                "You don't need to use an agent for everything.",
+                "agent raw",
+            ),
+            encoding="utf-8",
+        )
+        expected = main._append_list_item(
+            before,
+            "## Related Ideas",
+            "- [No Need for Agents in Everything]"
+            "(003-no-need-for-agents-in-everything.md)",
+            "003-no-need-for-agents-in-everything.md",
+        )
+        main.apply_maintainer_decision(
+            {
+                "use_topic_slugs": [],
+                "create_topics": [],
+                "related_idea_ids": ["010"],
+                "tags": [],
+            },
+            "003",
+            "No Need for Agents in Everything",
+            new_path.name,
+            ideas_dir=ideas,
+            topics_dir=topics,
+        )
+        after = target.read_text(encoding="utf-8")
+        self.assertEqual(after, expected)
+        self.assertEqual(main.parse_idea_tags(after), ["da-nang"])
+        self.assertIn('id: "010"', after)
+        self.assertIn("type: idea", after)
+        self.assertIn("source: telegram", after)
+        parsed = main.parse_idea_markdown(target.name, after)
+        self.assertEqual(parsed["title"], "Getting Used to Da Nang")
+        self.assertEqual(
+            parsed["clean_text"],
+            "Getting used to Da Nang takes time.",
+        )
+        self.assertIn("- [Cooking](../topics/cooking.md)", after)
+        self.assertEqual(main.recover_source_from_idea(after), target_source)
+        self.assertLess(after.index("## Topics"), after.index("## Source"))
+        self.assertLess(after.index("## Related Ideas"), after.index("## Source"))
+
+    def test_season_tag_and_seasons_topic_coexist(self) -> None:
+        ideas, topics, _schema = _wiki()
+        (topics / "seasons.md").write_text(
+            "# Seasons\n\n## Ideas\n",
+            encoding="utf-8",
+        )
+        original = "vietnamda yavas yavas kis sezonuna giriyoruz"
+        new_path = ideas / "015-vietnam-enters-winter-season.md"
+        new_path.write_text(
+            _v2_idea(
+                "015",
+                "Vietnam Enters Winter Season",
+                "We are gradually entering the winter season in Vietnam.",
+                original,
+            ),
+            encoding="utf-8",
+        )
+        main.apply_maintainer_decision(
+            {
+                "use_topic_slugs": ["seasons"],
+                "create_topics": [],
+                "related_idea_ids": [],
+                "tags": ["season"],
+            },
+            "015",
+            "Vietnam Enters Winter Season",
+            new_path.name,
+            ideas_dir=ideas,
+            topics_dir=topics,
+        )
+        text = new_path.read_text(encoding="utf-8")
+        self.assertEqual(main.parse_idea_tags(text), ["season"])
+        self.assertIn("- [Seasons](../topics/seasons.md)", text)
+        self.assertNotEqual(main.parse_idea_tags(text), ["seasons"])
+        parsed = main.parse_idea_markdown(new_path.name, text)
+        self.assertEqual(parsed["title"], "Vietnam Enters Winter Season")
+        self.assertEqual(
+            parsed["clean_text"],
+            "We are gradually entering the winter season in Vietnam.",
+        )
+        self.assertNotIn("## Topics", parsed["clean_text"])
+        self.assertEqual(main.recover_source_from_idea(text), original)
+        seasons = (topics / "seasons.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "- [Vietnam Enters Winter Season]"
+            "(../ideas/015-vietnam-enters-winter-season.md)",
+            seasons,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
