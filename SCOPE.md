@@ -8,11 +8,13 @@ Capture → Normalize → Store → Connect → Organize → Maintain
 
 The fundamental unit of the system is the Post Idea.
 
-A Post Idea begins as a rough Telegram input and becomes a canonical English Idea in the wiki.
+A Post Idea begins as a rough Telegram input. The wiki stores a canonical English Idea plus the original Telegram text as Source provenance.
 
 The system preserves individual Ideas while continuously organizing their relationships through Topics and links.
 
-The result is an increasingly structured and navigable collection of post ideas that can be explored through Obsidian.
+Tags on an Idea are lightweight classification only. They do not replace Topics.
+
+The result is an increasingly structured and navigable collection of post ideas. Obsidian is the primary human interface; Markdown remains the portable source format.
 
 ## Wiki Structure
 
@@ -47,7 +49,9 @@ Chronological record of wiki changes.
 
 Contains canonical Post Ideas.
 
-One Idea = one distinct post concept.
+One Idea = one distinct post concept = one Markdown file.
+
+Every Idea file includes YAML Properties, an H1 title, the clean English body, and a Source section. Topics and Related Ideas sections are optional.
 
 ### topics/
 
