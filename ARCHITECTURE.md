@@ -108,4 +108,6 @@ One production pattern is a VPS wiki synchronized one-way to a Mac and opened as
 
 VPS Wiki → rsync → Mac Wiki → Obsidian
 
+A generic helper is `scripts/sync-wiki-from-vps.sh`. It copies VPS → local only.
+
 Obsidian is optional. Markdown remains the portable source format.

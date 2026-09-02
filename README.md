@@ -30,6 +30,8 @@ Text, text+image, and text+video messages are supported.
 
 <img src="docs/assets/idea-dump-obsidian.png" alt="Idea Dump wiki in Obsidian: Ideas, Properties, and graph" width="900">
 
+This view is the optional VPS → Mac rsync vault opened in Obsidian.
+
 ## Why Idea Dump?
 
 For people who want instant capture from Telegram, LLM-assisted cleanup and linking, and a knowledge base they own as ordinary Markdown files.
@@ -157,7 +159,47 @@ knowledge-base/
 
 ## Obsidian (optional)
 
-`knowledge-base/` is ordinary Markdown. Open that folder as an Obsidian vault if you want a visual browser. Obsidian is not required to capture or store Ideas.
+`knowledge-base/` is ordinary Markdown. Open that folder as an Obsidian vault if you want a visual browser. You can also just read the files. Obsidian is not required to capture or store Ideas.
+
+## Obsidian + automatic Mac sync
+
+Optional. Use this only if Idea Dump runs on a VPS and you want a local Mac copy for Obsidian (the screenshot above). Local `python main.py` does not need this.
+
+```text
+VPS knowledge-base
+  → rsync over SSH (one-way)
+  → local Markdown folder
+  → optional Obsidian vault
+```
+
+The VPS is the source of truth. Sync never writes back to the VPS. Edits in Obsidian stay on the Mac. `.obsidian/` is excluded so vault settings are not overwritten.
+
+1. Copy and edit the example config (do not commit the filled file):
+
+```bash
+cp scripts/obsidian-sync.env.example scripts/obsidian-sync.env
+```
+
+Set `IDEA_DUMP_SSH_HOST`, optional `IDEA_DUMP_SSH_KEY`, `IDEA_DUMP_REMOTE_KB`, and `IDEA_DUMP_LOCAL_KB`. There are no personal defaults.
+
+2. Test once (prints the rsync command, no network):
+
+```bash
+export IDEA_DUMP_SYNC_ENV="$PWD/scripts/obsidian-sync.env"
+./scripts/sync-wiki-from-vps.sh --print
+```
+
+Then run a real sync:
+
+```bash
+./scripts/sync-wiki-from-vps.sh
+```
+
+3. Open `IDEA_DUMP_LOCAL_KB` as an Obsidian vault, or browse the Markdown as files.
+
+4. Optional automatic sync every 60 seconds: copy `scripts/com.idea-dump.sync.plist.example` to `~/Library/LaunchAgents/com.idea-dump.sync.plist`, replace `/ABS/PATH/TO/idea-dump` with your clone path, then load it with `launchctl`. The template is not installed for you.
+
+To remove local files that disappeared on the VPS, set `IDEA_DUMP_RSYNC_DELETE=1` in the env file. That still excludes `.obsidian/` and `.trash/`, and caps deletions per run (`IDEA_DUMP_RSYNC_MAX_DELETE`, default 50).
 
 ## Tests
 
@@ -167,7 +209,7 @@ python -m unittest discover -s tests
 
 ## Scripts
 
-`scripts/` holds one-off migrators for older Idea Dump wikis. A fresh install does not need them.
+`scripts/` holds one-off migrators for older Idea Dump wikis, plus the optional VPS → Mac wiki sync helper. A fresh local install does not need them.
 
 ## License
 

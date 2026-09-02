@@ -1,5 +1,6 @@
 .env
 venv/
+scripts/obsidian-sync.env
 __pycache__/
 knowledge-base/ideas/*.md
 knowledge-base/ideas/assets/*
