@@ -26,6 +26,10 @@ flowchart TD
 
 Text, text+image, and text+video messages are supported.
 
+## Your ideas become a living wiki
+
+<img src="docs/assets/idea-dump-obsidian.png" alt="Idea Dump wiki in Obsidian: Ideas, Properties, and graph" width="900">
+
 ## Why Idea Dump?
 
 For people who want instant capture from Telegram, LLM-assisted cleanup and linking, and a knowledge base they own as ordinary Markdown files.
