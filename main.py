@@ -33,6 +33,12 @@ INDEX_PATH = IDEAS_DIR.parent / "index.md"
 LOG_PATH = IDEAS_DIR.parent / "log.md"
 IDEA_ID_PREFIX = re.compile(r"^(\d+)-")
 IDEA_LINK_ID = re.compile(r"ideas/(\d+)-")
+IDEA_BODY_STOP_HEADINGS = (
+    "## Original Message",
+    "## Topics",
+    "## Related Ideas",
+    "## Source",
+)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 REWRITE_SYSTEM_PROMPT = """You rewrite Telegram messages into English.
 Return JSON only with keys "title" and "clean_text".
@@ -144,17 +150,96 @@ def media_ref(filename: str) -> str:
     return f"../assets/{filename}"
 
 
+def _yaml_needs_quotes(value: str) -> bool:
+    if not value or value != value.strip():
+        return True
+    if value.lower() in {"true", "false", "null", "yes", "no", "on", "off"}:
+        return True
+    if value[0] in "-?:{}[]#&*!|>'\"%@`":
+        return True
+    if ": " in value or " #" in value or "\n" in value or "\r" in value:
+        return True
+    return False
+
+
+def _yaml_scalar(value: str, *, force_quotes: bool = False) -> str:
+    if force_quotes or _yaml_needs_quotes(value):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def idea_yaml_frontmatter(
+    idea_id: str,
+    title: str,
+    created: datetime | None = None,
+) -> str:
+    created_s = (created if created is not None else datetime.now()).strftime(
+        "%Y-%m-%d"
+    )
+    return (
+        "---\n"
+        f"id: {_yaml_scalar(str(idea_id), force_quotes=True)}\n"
+        f"title: {_yaml_scalar(title)}\n"
+        "type: idea\n"
+        f"created: {created_s}\n"
+        "source: telegram\n"
+        "tags: []\n"
+        "---\n"
+    )
+
+
+def source_blockquote(original_text: str) -> str:
+    parts = original_text.split("\n")
+    quoted: list[str] = []
+    for part in parts:
+        quoted.append(">" if part == "" else f"> {part}")
+    return "\n".join(quoted)
+
+
+def recover_source_from_idea(text: str) -> str:
+    lines = text.splitlines()
+    start = next(
+        (i for i, line in enumerate(lines) if line.strip() == "## Source"),
+        None,
+    )
+    if start is None:
+        return ""
+    recovered: list[str] = []
+    started = False
+    for line in lines[start + 1 :]:
+        if line.startswith("## "):
+            break
+        if not started and not line.strip():
+            continue
+        if line.startswith("> "):
+            started = True
+            recovered.append(line[2:])
+            continue
+        if line == ">":
+            started = True
+            recovered.append("")
+            continue
+        break
+    return "\n".join(recovered)
+
+
 def idea_markdown(
     title: str,
     clean_text: str,
     image_ref: str | None = None,
     video_ref: str | None = None,
+    *,
+    idea_id: str,
+    original_text: str,
+    created: datetime | None = None,
 ) -> str:
-    body = f"# {title}\n\n{clean_text}\n"
+    body = idea_yaml_frontmatter(idea_id, title, created)
+    body += f"# {title}\n\n{clean_text}\n"
     if image_ref:
         body += f"\n![]({image_ref})\n"
     if video_ref:
         body += f"\n[Video]({video_ref})\n"
+    body += f"\n## Source\n\n{source_blockquote(original_text)}\n"
     return body
 
 
@@ -164,11 +249,22 @@ def write_idea_file(
     clean_text: str,
     image_ref: str | None = None,
     video_ref: str | None = None,
+    *,
+    original_text: str,
+    created: datetime | None = None,
 ) -> Path:
     filename = f"{idea_id}-{title_slug(title)}.md"
     path = IDEAS_DIR / filename
     path.write_text(
-        idea_markdown(title, clean_text, image_ref, video_ref),
+        idea_markdown(
+            title,
+            clean_text,
+            image_ref,
+            video_ref,
+            idea_id=idea_id,
+            original_text=original_text,
+            created=created,
+        ),
         encoding="utf-8",
     )
     return path
@@ -302,6 +398,16 @@ def _idea_id_from_filename(name: str) -> str | None:
     return match.group(1)
 
 
+def _body_after_frontmatter(text: str) -> str:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[i + 1 :])
+    return text
+
+
 def parse_idea_markdown(filename: str, text: str) -> dict:
     idea_id = _idea_id_from_filename(filename)
     if idea_id is None:
@@ -309,17 +415,13 @@ def parse_idea_markdown(filename: str, text: str) -> dict:
     title = ""
     body_lines: list[str] = []
     started = False
-    for line in text.splitlines():
+    for line in _body_after_frontmatter(text).splitlines():
         if not started:
             if line.startswith("# "):
                 title = line[2:].strip()
                 started = True
             continue
-        if line.startswith("## Original Message"):
-            break
-        if line.startswith("## Topics"):
-            break
-        if line.startswith("## Related Ideas"):
+        if any(line.startswith(heading) for heading in IDEA_BODY_STOP_HEADINGS):
             break
         stripped = line.strip()
         if stripped.startswith("![](") or stripped.startswith("[Video]("):
@@ -513,6 +615,16 @@ def _append_list_item(text: str, heading: str, item_line: str, target: str) -> s
         None,
     )
     if heading_idx is None:
+        source_idx = next(
+            (i for i, line in enumerate(lines) if line.strip() == "## Source"),
+            None,
+        )
+        if source_idx is not None:
+            insert_at = source_idx
+            while insert_at > 0 and lines[insert_at - 1].strip() == "":
+                insert_at -= 1
+            lines[insert_at:insert_at] = [heading, "", item_line, ""]
+            return "\n".join(lines) + "\n"
         body = text.rstrip()
         if body:
             body += "\n\n"
@@ -708,6 +820,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         clean_text,
         image_ref,
         video_ref,
+        original_text=original_text,
     )
     decision = await run_wiki_maintainer(idea_id, title, clean_text, idea_path.name)
     try_after_capture_index_and_log(idea_id, title, decision)

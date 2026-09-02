@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
@@ -35,6 +36,9 @@ class NewTopLevelAssetsTests(unittest.TestCase):
             "Borek",
             "This is what börek should be like.",
             image_ref=main.media_ref("005-image.jpg"),
+            idea_id="005",
+            original_text="börek",
+            created=datetime(2026, 9, 1),
         )
         self.assertIn("![](../assets/005-image.jpg)", body)
         self.assertNotIn("](assets/", body)
@@ -45,6 +49,9 @@ class NewTopLevelAssetsTests(unittest.TestCase):
             "Lifeguard in Da Nang",
             "There is a lifeguard in Da Nang.",
             video_ref=main.media_ref("006-video.mp4"),
+            idea_id="006",
+            original_text="cankurtaran",
+            created=datetime(2026, 9, 1),
         )
         self.assertIn("[Video](../assets/006-video.mp4)", body)
         self.assertNotIn("](assets/", body)
@@ -71,6 +78,8 @@ class NewTopLevelAssetsTests(unittest.TestCase):
                 "New Image Idea",
                 "A new idea with an image.",
                 image_ref=main.media_ref(dest.name),
+                original_text="yeni foto",
+                created=datetime(2026, 9, 1),
             )
             self.assertEqual(old.read_bytes(), b"legacy-bytes")
             self.assertTrue(old.exists())
@@ -93,9 +102,12 @@ class NewTopLevelAssetsTests(unittest.TestCase):
                 "No Need for Agents in Everything",
                 "You don't need to use an agent for everything.",
                 image_ref=main.media_ref("007-image.jpg"),
+                original_text="illa her sey icin agent kullanmaya gerek yok",
+                created=datetime(2026, 9, 1),
             )
             text = written.read_text(encoding="utf-8")
-            self.assertTrue(text.startswith("# No Need for Agents in Everything\n"))
+            self.assertTrue(text.startswith("---\n"))
+            self.assertIn("# No Need for Agents in Everything\n", text)
             self.assertIn("You don't need to use an agent for everything.", text)
             self.assertNotIn("## Original Message", text)
             self.assertEqual(written.name, "007-no-need-for-agents-in-everything.md")

@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -394,6 +395,75 @@ class WikiMaintainerApplyTests(unittest.TestCase):
         )
         self.assertNotIn("## Topics", before_new)
         self.assertNotIn("## Related Ideas", before_new)
+
+
+class WikiMaintainerV2IdeaTests(unittest.TestCase):
+    def test_context_excludes_v2_source_from_canonical_body(self) -> None:
+        ideas, topics, schema = _wiki()
+        (ideas / "004-winter.md").write_text(
+            main.idea_markdown(
+                "Vietnam Enters Winter Season",
+                "We are gradually entering the winter season in Vietnam.",
+                idea_id="004",
+                original_text="vietnamda yavas yavas kis sezonuna giriyoruz",
+                created=datetime(2026, 9, 1),
+            ),
+            encoding="utf-8",
+        )
+        context = main.build_maintainer_context(
+            "005",
+            "New Idea",
+            "A new idea.",
+            "005-new.md",
+            ideas_dir=ideas,
+            topics_dir=topics,
+            schema_path=schema,
+        )
+        dumped = str(context)
+        self.assertNotIn("vietnamda yavas yavas kis sezonuna giriyoruz", dumped)
+        winter = next(idea for idea in context["existing_ideas"] if idea["id"] == "004")
+        self.assertEqual(
+            winter["clean_text"],
+            "We are gradually entering the winter season in Vietnam.",
+        )
+
+    def test_topics_and_related_are_inserted_before_source(self) -> None:
+        ideas, topics, _schema = _wiki()
+        new_path = ideas / "003-no-need-for-agents-in-everything.md"
+        new_path.write_text(
+            main.idea_markdown(
+                "No Need for Agents in Everything",
+                "You don't need to use an agent for everything.",
+                idea_id="003",
+                original_text="illa her sey icin agent kullanmaya gerek yok",
+                created=datetime(2026, 9, 1),
+            ),
+            encoding="utf-8",
+        )
+        main.apply_maintainer_decision(
+            {
+                "use_topic_slugs": ["cooking"],
+                "create_topics": [],
+                "related_idea_ids": ["001"],
+            },
+            "003",
+            "No Need for Agents in Everything",
+            "003-no-need-for-agents-in-everything.md",
+            ideas_dir=ideas,
+            topics_dir=topics,
+        )
+        text = new_path.read_text(encoding="utf-8")
+        self.assertLess(text.index("## Topics"), text.index("## Source"))
+        self.assertLess(text.index("## Related Ideas"), text.index("## Source"))
+        self.assertEqual(
+            main.recover_source_from_idea(text),
+            "illa her sey icin agent kullanmaya gerek yok",
+        )
+        parsed = main.parse_idea_markdown(new_path.name, text)
+        self.assertEqual(
+            parsed["clean_text"],
+            "You don't need to use an agent for everything.",
+        )
 
 
 if __name__ == "__main__":

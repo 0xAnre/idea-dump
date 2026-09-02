@@ -150,6 +150,31 @@ class IndexRebuildTests(unittest.TestCase):
         self.assertIn("001 — [Start Command](ideas/001-start-command.md)", text)
 
 
+    def test_v2_frontmatter_ideas_index_by_h1_title(self) -> None:
+        ideas, topics, index_path, _log = _empty_wiki()
+        (ideas / "015-vietnam-enters-winter-season.md").write_text(
+            main.idea_markdown(
+                "Vietnam Enters Winter Season",
+                "We are gradually entering the winter season in Vietnam.",
+                idea_id="015",
+                original_text="vietnamda yavas yavas kis sezonuna giriyoruz",
+                created=datetime(2026, 9, 1),
+            ),
+            encoding="utf-8",
+        )
+        text = main.rebuild_index(
+            ideas_dir=ideas,
+            topics_dir=topics,
+            index_path=index_path,
+        )
+        self.assertIn(
+            "- 015 — [Vietnam Enters Winter Season]"
+            "(ideas/015-vietnam-enters-winter-season.md)",
+            text,
+        )
+        self.assertNotIn("vietnamda", text)
+
+
 class WikiLogTests(unittest.TestCase):
     def test_one_log_line_per_idea(self) -> None:
         _ideas, _topics, _index, log_path = _empty_wiki()
