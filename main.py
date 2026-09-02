@@ -68,6 +68,9 @@ TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 RESERVED_TAGS = frozenset({"idea", "telegram"})
 
 
+JSON_PARSE_SNIPPET_LIMIT = 240
+
+
 def _strip_json_fences(content: str | None) -> str:
     if content is None or not str(content).strip():
         raise ValueError("OpenRouter response empty")
@@ -82,15 +85,42 @@ def _strip_json_fences(content: str | None) -> str:
     return text
 
 
+def _json_content_snippet(content: object) -> str:
+    text = "" if content is None else str(content)
+    clipped = text[:JSON_PARSE_SNIPPET_LIMIT]
+    suffix = "..." if len(text) > JSON_PARSE_SNIPPET_LIMIT else ""
+    return repr(clipped) + suffix
+
+
+def _log_json_parse_failure(content: object) -> None:
+    print(
+        f"OpenRouter JSON parse failed; content_snippet={_json_content_snippet(content)}",
+        flush=True,
+    )
+
+
 def _parse_json_object(content: str | None) -> dict:
     text = _strip_json_fences(content)
     try:
         data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError("OpenRouter response is not valid JSON") from exc
-    if not isinstance(data, dict):
+    except json.JSONDecodeError:
+        data = None
+    else:
+        if isinstance(data, dict):
+            return data
+        _log_json_parse_failure(content)
         raise ValueError("OpenRouter response is not valid JSON")
-    return data
+    start = text.find("{")
+    if start != -1:
+        try:
+            data, _end = json.JSONDecoder().raw_decode(text, start)
+        except json.JSONDecodeError:
+            data = None
+        else:
+            if isinstance(data, dict):
+                return data
+    _log_json_parse_failure(content)
+    raise ValueError("OpenRouter response is not valid JSON")
 
 
 def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
