@@ -57,7 +57,7 @@ Create a Topic only when no existing Topic fits.
 Link related Ideas only when the relationship is meaningful, not to fill a graph.
 use_topic_slugs: slugs of existing Topics to attach.
 create_topics: array of {"title", "slug"} for new Topics. Slugs must not collide with existing Topics.
-related_idea_ids: IDs of existing Ideas, never the new Idea.
+related_idea_ids: JSON array of existing Idea ID strings, zero-padded, e.g. ["031"]. Never numbers, null, or empty strings. Never the new Idea. Use [] when none.
 tags: 0–4 lowercase kebab-case labels for Obsidian classification. Typical 1–3. Zero is allowed.
 Prefer existing_tags over new ones. Avoid synonyms and near-duplicates.
 Prefer broad reusable concepts over one-off specifics. No nested tags, no #, no spaces.
@@ -636,6 +636,23 @@ def build_maintainer_context(
     }
 
 
+def _canonical_related_idea_id(raw: object) -> str:
+    if isinstance(raw, bool) or raw is None:
+        raise ValueError("related_idea_ids items must be non-empty strings")
+    if isinstance(raw, int):
+        if raw < 0:
+            raise ValueError("related_idea_ids items must be non-empty strings")
+        return f"{raw:03d}"
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            raise ValueError("related_idea_ids items must be non-empty strings")
+        if stripped.isdigit() and len(stripped) <= 3:
+            return f"{int(stripped):03d}"
+        return stripped
+    raise ValueError("related_idea_ids items must be non-empty strings")
+
+
 def validate_maintainer_decision(data: dict, context: dict) -> dict:
     required = ("use_topic_slugs", "create_topics", "related_idea_ids", "tags")
     extra = set(data.keys()) - set(required)
@@ -697,8 +714,7 @@ def validate_maintainer_decision(data: dict, context: dict) -> dict:
     seen_related: set[str] = set()
     normalized_related: list[str] = []
     for idea_id in related_idea_ids:
-        if not isinstance(idea_id, str) or not idea_id.strip():
-            raise ValueError("related_idea_ids items must be non-empty strings")
+        idea_id = _canonical_related_idea_id(idea_id)
         if idea_id == new_idea_id:
             raise ValueError("related_idea_ids must not include the new Idea")
         if idea_id not in existing_idea_ids:

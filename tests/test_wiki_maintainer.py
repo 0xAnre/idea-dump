@@ -141,6 +141,35 @@ class WikiMaintainerDecisionTests(unittest.TestCase):
         )
         self.assertEqual(decision["related_idea_ids"], ["001"])
 
+    def test_numeric_related_idea_ids_match_037_failure_mode(self) -> None:
+        decision = main.parse_maintainer_decision(
+            '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":[1],"tags":[]}',
+            _context(),
+        )
+        self.assertEqual(decision["related_idea_ids"], ["001"])
+
+    def test_reject_empty_related_idea_id_string(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "related_idea_ids items must be non-empty strings"
+        ):
+            main.parse_maintainer_decision(
+                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":[""],"tags":[]}',
+                _context(),
+            )
+
+    def test_reject_null_related_idea_id(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "related_idea_ids items must be non-empty strings"
+        ):
+            main.parse_maintainer_decision(
+                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":[null],"tags":[]}',
+                _context(),
+            )
+
+    def test_prompt_requires_quoted_zero_padded_related_ids(self) -> None:
+        self.assertIn('e.g. ["031"]', main.MAINTAINER_SYSTEM_PROMPT)
+        self.assertIn("Never numbers, null, or empty strings", main.MAINTAINER_SYSTEM_PROMPT)
+
     def test_reject_unknown_topic(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown Topic slug"):
             main.parse_maintainer_decision(
@@ -721,6 +750,89 @@ class WikiMaintainerTagTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(path.read_text(encoding="utf-8"), body)
             self.assertIn("tags: []", body)
+        finally:
+            main.IDEAS_DIR = original_ideas
+            main.TOPICS_DIR = original_topics
+            main.SCHEMA_PATH = original_schema
+
+    def test_numeric_related_ids_from_llm_json_apply(self) -> None:
+        ideas, topics, schema = _wiki()
+        new = _new_idea()
+        path = ideas / new["filename"]
+        body = _v2_idea(new["id"], new["title"], new["clean_text"], "raw source")
+        path.write_text(body, encoding="utf-8")
+        original_ideas = main.IDEAS_DIR
+        original_topics = main.TOPICS_DIR
+        original_schema = main.SCHEMA_PATH
+        main.IDEAS_DIR = ideas
+        main.TOPICS_DIR = topics
+        main.SCHEMA_PATH = schema
+        try:
+            with patch.object(
+                main,
+                "_openrouter_chat",
+                AsyncMock(
+                    return_value=(
+                        '{"use_topic_slugs":["cooking"],"create_topics":[],'
+                        '"related_idea_ids":[1],"tags":["cooking"]}'
+                    )
+                ),
+            ):
+                result = asyncio.run(
+                    main.run_wiki_maintainer(
+                        new["id"],
+                        new["title"],
+                        new["clean_text"],
+                        new["filename"],
+                    )
+                )
+            self.assertIsNotNone(result)
+            self.assertEqual(result["related_idea_ids"], ["001"])
+            self.assertEqual(result["tags"], ["cooking"])
+            self.assertEqual(result["use_topic_slugs"], ["cooking"])
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("- [Start Command](001-start-command.md)", text)
+            self.assertIn("- [Cooking](../topics/cooking.md)", text)
+            self.assertEqual(main.parse_idea_tags(text), ["cooking"])
+            self.assertEqual(main.recover_source_from_idea(text), "raw source")
+        finally:
+            main.IDEAS_DIR = original_ideas
+            main.TOPICS_DIR = original_topics
+            main.SCHEMA_PATH = original_schema
+
+    def test_malformed_related_ids_leave_canonical_idea_intact(self) -> None:
+        ideas, topics, schema = _wiki()
+        new = _new_idea()
+        path = ideas / new["filename"]
+        body = _v2_idea(new["id"], new["title"], new["clean_text"], "raw source")
+        path.write_text(body, encoding="utf-8")
+        original_ideas = main.IDEAS_DIR
+        original_topics = main.TOPICS_DIR
+        original_schema = main.SCHEMA_PATH
+        main.IDEAS_DIR = ideas
+        main.TOPICS_DIR = topics
+        main.SCHEMA_PATH = schema
+        try:
+            with patch.object(
+                main,
+                "_openrouter_chat",
+                AsyncMock(
+                    return_value=(
+                        '{"use_topic_slugs":[],"create_topics":[],'
+                        '"related_idea_ids":[null],"tags":[]}'
+                    )
+                ),
+            ):
+                result = asyncio.run(
+                    main.run_wiki_maintainer(
+                        new["id"],
+                        new["title"],
+                        new["clean_text"],
+                        new["filename"],
+                    )
+                )
+            self.assertIsNone(result)
+            self.assertEqual(path.read_text(encoding="utf-8"), body)
         finally:
             main.IDEAS_DIR = original_ideas
             main.TOPICS_DIR = original_topics
