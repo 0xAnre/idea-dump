@@ -6,7 +6,7 @@ It provides a frictionless way to capture post ideas as they occur and gradually
 
 Core experience:
 
-Telegram → LLM → Living Post-Idea Wiki → Obsidian
+Telegram → LLM → Living Post-Idea Wiki → Markdown (Obsidian optional)
 
 A rough Telegram message is the capture input.
 
@@ -20,7 +20,7 @@ Each Idea file also carries YAML Properties for Obsidian (including lightweight 
 
 Over time, the LLM maintains the wiki by organizing ideas into topics, discovering relationships between ideas, creating links, and keeping the structure coherent as the collection grows.
 
-Obsidian is the primary human interface for browsing and navigating the wiki. Markdown remains the portable source format.
+Obsidian is an optional human interface for browsing those files. Markdown remains the portable source format.
 
 ## North Star
 

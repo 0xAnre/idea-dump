@@ -14,7 +14,7 @@ The system preserves individual Ideas while continuously organizing their relati
 
 Tags on an Idea are lightweight classification only. They do not replace Topics.
 
-The result is an increasingly structured and navigable collection of post ideas. Obsidian is the primary human interface; Markdown remains the portable source format.
+The result is an increasingly structured and navigable collection of post ideas. Markdown is the portable source format. Obsidian is an optional interface over those files.
 
 ## Wiki Structure
 

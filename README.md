@@ -1,21 +1,34 @@
 # Idea Dump
 
-Idea Dump is a Telegram-first capture tool that turns rough thoughts into a living Markdown knowledge base maintained by an LLM.
-
-- **Telegram** is the capture interface.
-- **Markdown** is the knowledge base.
-- **LLM** rewrites each message into English and maintains the wiki (tags, Topics, Related Ideas).
-- **Obsidian** is an optional human interface over the same files.
+Turn rough Telegram messages into a portable Markdown wiki.
 
 ```text
-Telegram
-  → English rewrite
-  → Markdown Idea
-  → Tags / Topics / Related Ideas
-  → knowledge-base/
+Telegram → LLM → Markdown Wiki → Tags / Topics / Related Ideas
+```
+
+- Capture rough thoughts from Telegram
+- Automatically clean and organize them
+- Keep everything as portable Markdown
+
+Obsidian is optional.
+
+```mermaid
+flowchart TD
+  A[Telegram] --> B[Idea Dump]
+  B --> C[OpenRouter / LLM]
+  C --> D[Markdown Knowledge Base]
+  D --> E[Ideas]
+  D --> F[Topics]
+  D --> G[Tags]
+  D --> H[Related Ideas]
+  D --> I[Optional Obsidian]
 ```
 
 Text, text+image, and text+video messages are supported.
+
+## Why Idea Dump?
+
+For people who want instant capture from Telegram, LLM-assisted cleanup and linking, and a knowledge base they own as ordinary Markdown files.
 
 A local process is enough. A VPS and Obsidian are not required.
 
@@ -93,6 +106,30 @@ Idea Dump is now waiting for Telegram messages. Stop it with **Ctrl+C**.
 
 If no file appears, check the terminal for missing env vars or OpenRouter errors, then send another message.
 
+## Run 24/7 on a VPS
+
+Local `python main.py` is enough for normal use and testing. Run on a VPS only if the Telegram bot should stay available when your laptop is off.
+
+Use systemd to keep the process running. Adjust paths to match your server. Example:
+
+```ini
+[Unit]
+Description=Idea Dump
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+WorkingDirectory=/opt/idea-dump
+EnvironmentFile=/opt/idea-dump/.env
+ExecStart=/opt/idea-dump/venv/bin/python /opt/idea-dump/main.py
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The repo file `idea-dump.service` is a template with placeholder paths. It is not plug-and-play. Point `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` at your clone and venv.
+
 ## Knowledge base
 
 ```text
@@ -117,10 +154,6 @@ knowledge-base/
 ## Obsidian (optional)
 
 `knowledge-base/` is ordinary Markdown. Open that folder as an Obsidian vault if you want a visual browser. Obsidian is not required to capture or store Ideas.
-
-## Always-on (optional)
-
-Local `python main.py` is enough to use Idea Dump. For 24/7 capture, run the same process on a VPS (for example via systemd). That is not part of the minimum setup.
 
 ## Tests
 

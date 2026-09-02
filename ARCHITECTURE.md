@@ -16,9 +16,7 @@ Ideas + Links + Topics
 ↓
 Markdown Wiki
 ↓
-rsync / Mac
-↓
-Obsidian
+Optional Obsidian
 
 ## Capture
 
@@ -104,10 +102,10 @@ The exact original Telegram text or caption. Provenance and reference, not the c
 
 ## Human Interface
 
-The live knowledge base resides on the VPS.
+The knowledge base is the Markdown tree under `knowledge-base/`. A local process writing those files is enough.
 
-It is synchronized one-way to the Mac and opened as an Obsidian vault.
+One production pattern is a VPS wiki synchronized one-way to a Mac and opened as an Obsidian vault:
 
 VPS Wiki → rsync → Mac Wiki → Obsidian
 
-Obsidian is the primary human interface. Markdown remains the portable source format.
+Obsidian is optional. Markdown remains the portable source format.
