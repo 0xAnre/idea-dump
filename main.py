@@ -58,11 +58,12 @@ Link related Ideas only when the relationship is meaningful, not to fill a graph
 use_topic_slugs: slugs of existing Topics to attach.
 create_topics: array of {"title", "slug"} for new Topics. Slugs must not collide with existing Topics.
 related_idea_ids: JSON array of existing Idea ID strings, zero-padded, e.g. ["031"]. Never numbers, null, or empty strings. Never the new Idea. Use [] when none.
-tags: 0–4 lowercase kebab-case labels for Obsidian classification. Typical 1–3. Zero is allowed.
-Prefer existing_tags over new ones. Avoid synonyms and near-duplicates.
-Prefer broad reusable concepts over one-off specifics. No nested tags, no #, no spaces.
+tags: lowercase kebab-case Obsidian labels. Normally 1–3; maximum 4.
+Prefer a suitable tag from existing_tags. If none fits, one new broad reusable kebab-case concept is appropriate.
+tags: [] is exceptional: test pings, no reusable subject, or similarly unclassifiable input. Do not invent filler merely to avoid [].
+Empty Topics or Related Ideas does not imply empty tags.
 Tags classify and filter. Topics are wiki nodes. Tags do not replace Topics.
-Use empty arrays when none apply."""
+Avoid synonyms and near-duplicates. No nested tags, no #, no spaces."""
 TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 RESERVED_TAGS = frozenset({"idea", "telegram"})
 

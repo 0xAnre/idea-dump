@@ -170,6 +170,24 @@ class WikiMaintainerDecisionTests(unittest.TestCase):
         self.assertIn('e.g. ["031"]', main.MAINTAINER_SYSTEM_PROMPT)
         self.assertIn("Never numbers, null, or empty strings", main.MAINTAINER_SYSTEM_PROMPT)
 
+    def test_prompt_normally_assigns_one_to_three_tags(self) -> None:
+        self.assertIn("Normally 1–3", main.MAINTAINER_SYSTEM_PROMPT)
+
+    def test_prompt_empty_tags_are_exceptional(self) -> None:
+        self.assertIn("tags: [] is exceptional", main.MAINTAINER_SYSTEM_PROMPT)
+
+    def test_prompt_allows_new_broad_tag_when_existing_do_not_fit(self) -> None:
+        self.assertIn(
+            "If none fits, one new broad reusable kebab-case concept is appropriate",
+            main.MAINTAINER_SYSTEM_PROMPT,
+        )
+
+    def test_prompt_empty_topics_or_related_does_not_imply_empty_tags(self) -> None:
+        self.assertIn(
+            "Empty Topics or Related Ideas does not imply empty tags",
+            main.MAINTAINER_SYSTEM_PROMPT,
+        )
+
     def test_reject_unknown_topic(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown Topic slug"):
             main.parse_maintainer_decision(
