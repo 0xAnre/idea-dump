@@ -307,6 +307,7 @@ class CaptureFinalizeSafetyTests(unittest.TestCase):
                 "use_topic_slugs": [],
                 "create_topics": [{"title": "Agents", "slug": "agents"}],
                 "related_idea_ids": ["001"],
+                "tags": [],
             },
             "003",
             "No Need for Agents in Everything",

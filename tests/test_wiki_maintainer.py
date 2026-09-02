@@ -98,12 +98,13 @@ class WikiMaintainerContextTests(unittest.TestCase):
             self.assertNotIn("![](", idea["clean_text"])
         self.assertNotIn("index.md", dumped)
         self.assertNotIn("log.md", dumped)
+        self.assertEqual(context["existing_tags"], [])
 
 
 class WikiMaintainerDecisionTests(unittest.TestCase):
     def test_valid_empty_decision(self) -> None:
         decision = main.parse_maintainer_decision(
-            '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":[]}',
+            '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":[],"tags":[]}',
             _context(),
         )
         self.assertEqual(
@@ -112,19 +113,20 @@ class WikiMaintainerDecisionTests(unittest.TestCase):
                 "use_topic_slugs": [],
                 "create_topics": [],
                 "related_idea_ids": [],
+                "tags": [],
             },
         )
 
     def test_valid_existing_topic_selection(self) -> None:
         decision = main.parse_maintainer_decision(
-            '{"use_topic_slugs":["cooking"],"create_topics":[],"related_idea_ids":[]}',
+            '{"use_topic_slugs":["cooking"],"create_topics":[],"related_idea_ids":[],"tags":[]}',
             _context(),
         )
         self.assertEqual(decision["use_topic_slugs"], ["cooking"])
 
     def test_valid_new_topic_creation(self) -> None:
         decision = main.parse_maintainer_decision(
-            '{"use_topic_slugs":[],"create_topics":[{"title":"Agents","slug":"agents"}],"related_idea_ids":[]}',
+            '{"use_topic_slugs":[],"create_topics":[{"title":"Agents","slug":"agents"}],"related_idea_ids":[],"tags":[]}',
             _context(),
         )
         self.assertEqual(
@@ -134,7 +136,7 @@ class WikiMaintainerDecisionTests(unittest.TestCase):
 
     def test_valid_related_idea_selection(self) -> None:
         decision = main.parse_maintainer_decision(
-            '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":["001"]}',
+            '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":["001"],"tags":[]}',
             _context(),
         )
         self.assertEqual(decision["related_idea_ids"], ["001"])
@@ -142,28 +144,28 @@ class WikiMaintainerDecisionTests(unittest.TestCase):
     def test_reject_unknown_topic(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown Topic slug"):
             main.parse_maintainer_decision(
-                '{"use_topic_slugs":["travel"],"create_topics":[],"related_idea_ids":[]}',
+                '{"use_topic_slugs":["travel"],"create_topics":[],"related_idea_ids":[],"tags":[]}',
                 _context(),
             )
 
     def test_reject_topic_collision(self) -> None:
         with self.assertRaisesRegex(ValueError, "Topic slug collision"):
             main.parse_maintainer_decision(
-                '{"use_topic_slugs":[],"create_topics":[{"title":"Cooking","slug":"cooking"}],"related_idea_ids":[]}',
+                '{"use_topic_slugs":[],"create_topics":[{"title":"Cooking","slug":"cooking"}],"related_idea_ids":[],"tags":[]}',
                 _context(),
             )
 
     def test_reject_unknown_idea_id(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown Idea ID"):
             main.parse_maintainer_decision(
-                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":["999"]}',
+                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":["999"],"tags":[]}',
                 _context(),
             )
 
     def test_reject_self_link(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not include the new Idea"):
             main.parse_maintainer_decision(
-                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":["003"]}',
+                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":["003"],"tags":[]}',
                 _context(),
             )
 
@@ -238,6 +240,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": [],
                 "create_topics": [{"title": "Agents", "slug": "agents"}],
                 "related_idea_ids": [],
+                "tags": [],
             }
         )
         path = self.topics / "agents.md"
@@ -256,6 +259,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": ["cooking"],
                 "create_topics": [],
                 "related_idea_ids": [],
+                "tags": [],
             }
         )
         text = (self.topics / "cooking.md").read_text(encoding="utf-8")
@@ -272,6 +276,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": ["cooking"],
                 "create_topics": [{"title": "Agents", "slug": "agents"}],
                 "related_idea_ids": [],
+                "tags": [],
             }
         )
         text = self.new_path.read_text(encoding="utf-8")
@@ -285,6 +290,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": [],
                 "create_topics": [],
                 "related_idea_ids": ["001"],
+                "tags": [],
             }
         )
         text = self.new_path.read_text(encoding="utf-8")
@@ -297,6 +303,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": [],
                 "create_topics": [],
                 "related_idea_ids": ["001"],
+                "tags": [],
             }
         )
         text = (self.ideas / "001-start-command.md").read_text(encoding="utf-8")
@@ -314,6 +321,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
             "use_topic_slugs": ["cooking"],
             "create_topics": [{"title": "Agents", "slug": "agents"}],
             "related_idea_ids": ["001"],
+            "tags": [],
         }
         self._apply(decision)
         self._apply(decision)
@@ -340,6 +348,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": ["cooking"],
                 "create_topics": [],
                 "related_idea_ids": ["002"],
+                "tags": [],
             }
         )
         new_parsed = main.parse_idea_markdown(
@@ -361,6 +370,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": ["cooking"],
                 "create_topics": [],
                 "related_idea_ids": ["002"],
+                "tags": [],
             }
         )
         new_text = self.new_path.read_text(encoding="utf-8")
@@ -378,6 +388,7 @@ class WikiMaintainerApplyTests(unittest.TestCase):
                 "use_topic_slugs": [],
                 "create_topics": [],
                 "related_idea_ids": [],
+                "tags": [],
             }
         )
         self.assertEqual(self.new_path.read_text(encoding="utf-8"), before_new)
@@ -445,6 +456,7 @@ class WikiMaintainerV2IdeaTests(unittest.TestCase):
                 "use_topic_slugs": ["cooking"],
                 "create_topics": [],
                 "related_idea_ids": ["001"],
+                "tags": [],
             },
             "003",
             "No Need for Agents in Everything",
@@ -464,6 +476,255 @@ class WikiMaintainerV2IdeaTests(unittest.TestCase):
             parsed["clean_text"],
             "You don't need to use an agent for everything.",
         )
+
+
+CREATED = datetime(2026, 9, 1)
+
+
+def _v2_idea(
+    idea_id: str,
+    title: str,
+    body: str,
+    original: str,
+    tags: list[str] | None = None,
+) -> str:
+    text = main.idea_markdown(
+        title,
+        body,
+        idea_id=idea_id,
+        original_text=original,
+        created=CREATED,
+    )
+    if tags is None:
+        return text
+    return main.replace_frontmatter_tags(text, tags)
+
+
+def _tag_context() -> dict:
+    ideas, topics, schema = _wiki()
+    (ideas / "010-vietnam.md").write_text(
+        _v2_idea(
+            "010",
+            "Getting Used to Da Nang",
+            "Getting used to Da Nang takes time.",
+            "danang",
+            ["vietnam", "cooking"],
+        ),
+        encoding="utf-8",
+    )
+    (ideas / "011-empty.md").write_text(
+        _v2_idea(
+            "011",
+            "Empty Tags",
+            "This idea has no tags yet.",
+            "bos",
+            [],
+        ),
+        encoding="utf-8",
+    )
+    new = _new_idea()
+    (ideas / new["filename"]).write_text(
+        _v2_idea(new["id"], new["title"], new["clean_text"], "agent raw"),
+        encoding="utf-8",
+    )
+    return main.build_maintainer_context(
+        new["id"],
+        new["title"],
+        new["clean_text"],
+        new["filename"],
+        ideas_dir=ideas,
+        topics_dir=topics,
+        schema_path=schema,
+    )
+
+
+class WikiMaintainerTagTests(unittest.TestCase):
+    def _parse_tags(self, tags_json: str, context: dict | None = None):
+        payload = (
+            '{"use_topic_slugs":[],"create_topics":[],'
+            f'"related_idea_ids":[],"tags":{tags_json}}}'
+        )
+        return main.parse_maintainer_decision(payload, context or _context())
+
+    def test_existing_tags_are_sorted_unique(self) -> None:
+        context = _tag_context()
+        self.assertEqual(context["existing_tags"], ["cooking", "vietnam"])
+
+    def test_v1_ideas_contribute_no_tags(self) -> None:
+        context = _context()
+        self.assertEqual(context["existing_tags"], [])
+
+    def test_source_excluded_from_tag_context(self) -> None:
+        context = _tag_context()
+        dumped = str(context)
+        self.assertNotIn("danang", dumped)
+        self.assertNotIn("agent raw", dumped)
+        self.assertNotIn("bos", dumped)
+
+    def test_tags_required_in_decision_json(self) -> None:
+        with self.assertRaisesRegex(ValueError, "missing keys"):
+            main.parse_maintainer_decision(
+                '{"use_topic_slugs":[],"create_topics":[],"related_idea_ids":[]}',
+                _context(),
+            )
+
+    def test_empty_tags_valid(self) -> None:
+        decision = self._parse_tags("[]")
+        self.assertEqual(decision["tags"], [])
+
+    def test_one_to_four_tags_valid(self) -> None:
+        self.assertEqual(self._parse_tags('["coding"]')["tags"], ["coding"])
+        self.assertEqual(
+            self._parse_tags('["vietnam","season","cooking","crypto"]')["tags"],
+            ["vietnam", "season", "cooking", "crypto"],
+        )
+
+    def test_more_than_four_tags_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at most 4"):
+            self._parse_tags('["a","b","c","d","e"]')
+
+    def test_duplicate_tags_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Duplicate tag"):
+            self._parse_tags('["coding","coding"]')
+
+    def test_uppercase_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["Coding"]')
+
+    def test_spaces_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["da nang"]')
+
+    def test_slash_nested_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["crypto/trading"]')
+
+    def test_hash_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["#vietnam"]')
+
+    def test_leading_trailing_hyphen_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["-vietnam"]')
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["vietnam-"]')
+
+    def test_consecutive_hyphen_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["da--nang"]')
+
+    def test_over_24_chars_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid tag"):
+            self._parse_tags('["abcdefghijklmnopqrstuvwxy"]')
+
+    def test_reserved_idea_and_telegram_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Reserved tag"):
+            self._parse_tags('["idea"]')
+        with self.assertRaisesRegex(ValueError, "Reserved tag"):
+            self._parse_tags('["telegram"]')
+
+    def test_idea_id_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Idea ID"):
+            self._parse_tags('["003"]')
+
+    def test_valid_tags_written_preserving_order_and_rest(self) -> None:
+        ideas, topics, _schema = _wiki()
+        other = ideas / "010-getting-used-to-da-nang.md"
+        other.write_text(
+            _v2_idea(
+                "010",
+                "Getting Used to Da Nang",
+                "Getting used to Da Nang takes time.",
+                "danang",
+                ["da-nang"],
+            ),
+            encoding="utf-8",
+        )
+        new_path = ideas / "003-no-need-for-agents-in-everything.md"
+        original = "illa her sey icin agent kullanmaya gerek yok"
+        new_path.write_text(
+            _v2_idea(
+                "003",
+                "No Need for Agents in Everything",
+                "You don't need to use an agent for everything.",
+                original,
+            ),
+            encoding="utf-8",
+        )
+        before_other = other.read_text(encoding="utf-8")
+        main.apply_maintainer_decision(
+            {
+                "use_topic_slugs": ["cooking"],
+                "create_topics": [],
+                "related_idea_ids": ["001"],
+                "tags": ["vietnam", "season"],
+            },
+            "003",
+            "No Need for Agents in Everything",
+            new_path.name,
+            ideas_dir=ideas,
+            topics_dir=topics,
+        )
+        text = new_path.read_text(encoding="utf-8")
+        self.assertIn("id: \"003\"", text)
+        self.assertIn("title: No Need for Agents in Everything", text)
+        self.assertIn("type: idea", text)
+        self.assertIn("created: 2026-09-01", text)
+        self.assertIn("source: telegram", text)
+        self.assertIn("tags:\n  - vietnam\n  - season\n", text)
+        self.assertNotIn("tags: []", text)
+        self.assertIn("# No Need for Agents in Everything", text)
+        self.assertIn("You don't need to use an agent for everything.", text)
+        self.assertEqual(main.recover_source_from_idea(text), original)
+        self.assertIn("## Topics", text)
+        self.assertIn("## Related Ideas", text)
+        self.assertLess(text.index("## Topics"), text.index("## Source"))
+        parsed = main.parse_idea_markdown(new_path.name, text)
+        self.assertEqual(
+            parsed["clean_text"],
+            "You don't need to use an agent for everything.",
+        )
+        self.assertEqual(other.read_text(encoding="utf-8"), before_other)
+        self.assertEqual(main.parse_idea_tags(before_other), ["da-nang"])
+
+    def test_maintainer_tag_failure_leaves_canonical_idea_intact(self) -> None:
+        ideas, topics, schema = _wiki()
+        new = _new_idea()
+        path = ideas / new["filename"]
+        body = _v2_idea(new["id"], new["title"], new["clean_text"], "raw source")
+        path.write_text(body, encoding="utf-8")
+        original_ideas = main.IDEAS_DIR
+        original_topics = main.TOPICS_DIR
+        original_schema = main.SCHEMA_PATH
+        main.IDEAS_DIR = ideas
+        main.TOPICS_DIR = topics
+        main.SCHEMA_PATH = schema
+        try:
+            with patch.object(
+                main,
+                "_openrouter_chat",
+                AsyncMock(
+                    return_value=(
+                        '{"use_topic_slugs":[],"create_topics":[],'
+                        '"related_idea_ids":[],"tags":["NOT-VALID"]}'
+                    )
+                ),
+            ):
+                result = asyncio.run(
+                    main.run_wiki_maintainer(
+                        new["id"],
+                        new["title"],
+                        new["clean_text"],
+                        new["filename"],
+                    )
+                )
+            self.assertIsNone(result)
+            self.assertEqual(path.read_text(encoding="utf-8"), body)
+            self.assertIn("tags: []", body)
+        finally:
+            main.IDEAS_DIR = original_ideas
+            main.TOPICS_DIR = original_topics
+            main.SCHEMA_PATH = original_schema
 
 
 if __name__ == "__main__":

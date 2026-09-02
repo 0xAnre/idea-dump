@@ -49,15 +49,22 @@ Do not invent information. Do not add new ideas. Do not unnecessarily expand or 
 The input may be rough, incomplete, informal Turkish."""
 MAINTAINER_SYSTEM_PROMPT = """You are the Wiki Maintainer for Idea Dump.
 Place a new canonical Idea into the existing Markdown wiki.
-Return JSON only with keys "use_topic_slugs", "create_topics", and "related_idea_ids".
+Return JSON only with keys "use_topic_slugs", "create_topics", "related_idea_ids", and "tags".
 Do not rewrite the Idea title or body. Do not return title or clean_text.
+Use only the canonical English title and body. Never use Source or original Telegram text.
 Prefer an existing Topic when it already covers the Idea.
 Create a Topic only when no existing Topic fits.
 Link related Ideas only when the relationship is meaningful, not to fill a graph.
 use_topic_slugs: slugs of existing Topics to attach.
 create_topics: array of {"title", "slug"} for new Topics. Slugs must not collide with existing Topics.
 related_idea_ids: IDs of existing Ideas, never the new Idea.
+tags: 0–4 lowercase kebab-case labels for Obsidian classification. Typical 1–3. Zero is allowed.
+Prefer existing_tags over new ones. Avoid synonyms and near-duplicates.
+Prefer broad reusable concepts over one-off specifics. No nested tags, no #, no spaces.
+Tags classify and filter. Topics are wiki nodes. Tags do not replace Topics.
 Use empty arrays when none apply."""
+TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+RESERVED_TAGS = frozenset({"idea", "telegram"})
 
 
 def _strip_json_fences(content: str | None) -> str:
@@ -435,6 +442,133 @@ def parse_idea_markdown(filename: str, text: str) -> dict:
     }
 
 
+def _frontmatter_lines(text: str) -> tuple[list[str], int] | None:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return lines[1:i], i
+    return None
+
+
+def parse_idea_tags(text: str) -> list[str]:
+    bounds = _frontmatter_lines(text)
+    if bounds is None:
+        return []
+    fm, _end = bounds
+    tags: list[str] = []
+    i = 0
+    while i < len(fm):
+        line = fm[i]
+        if not line.startswith("tags:") and line.strip() != "tags:":
+            i += 1
+            continue
+        rest = line.split(":", 1)[1].strip()
+        if rest == "[]":
+            return []
+        if rest.startswith("[") and rest.endswith("]"):
+            inner = rest[1:-1].strip()
+            if not inner:
+                return []
+            return [
+                part.strip().strip("\"'")
+                for part in inner.split(",")
+                if part.strip()
+            ]
+        i += 1
+        while i < len(fm):
+            item = fm[i]
+            if not (
+                item.startswith("  ")
+                or item.startswith("\t")
+                or item.strip().startswith("- ")
+            ):
+                break
+            stripped = item.strip()
+            if stripped.startswith("- "):
+                value = stripped[2:].strip().strip("\"'")
+                if value:
+                    tags.append(value)
+            i += 1
+        return tags
+    return []
+
+
+def collect_existing_tags(ideas_dir: Path, *, skip_idea_id: str | None = None) -> list[str]:
+    found: set[str] = set()
+    for path in ideas_dir.glob("*.md"):
+        if skip_idea_id and _idea_id_from_filename(path.name) == skip_idea_id:
+            continue
+        found.update(parse_idea_tags(path.read_text(encoding="utf-8")))
+    return sorted(found)
+
+
+def _yaml_tags_block(tags: list[str]) -> list[str]:
+    if not tags:
+        return ["tags: []"]
+    return ["tags:"] + [f"  - {tag}" for tag in tags]
+
+
+def replace_frontmatter_tags(text: str, tags: list[str]) -> str:
+    lines = text.splitlines()
+    bounds = _frontmatter_lines(text)
+    if bounds is None:
+        if tags:
+            raise ValueError("Cannot apply tags without YAML frontmatter")
+        return text if text.endswith("\n") else f"{text}\n"
+    fm, end = bounds
+    start = None
+    stop = None
+    for i, line in enumerate(fm):
+        if line.startswith("tags:") or line.strip() == "tags:":
+            start = i
+            stop = i + 1
+            while stop < len(fm) and (
+                fm[stop].startswith("  ")
+                or fm[stop].startswith("\t")
+                or fm[stop].strip().startswith("- ")
+            ):
+                stop += 1
+            break
+    rendered = _yaml_tags_block(tags)
+    if start is None:
+        fm.extend(rendered)
+    else:
+        fm[start:stop] = rendered
+    updated = ["---", *fm, "---", *lines[end + 1 :]]
+    return "\n".join(updated) + "\n"
+
+
+def validate_idea_tags(raw: object, new_idea_id: str) -> list[str]:
+    if not isinstance(raw, list):
+        raise ValueError("tags must be a list")
+    if len(raw) > 4:
+        raise ValueError("tags must contain at most 4 items")
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item:
+            raise ValueError("tags items must be non-empty strings")
+        if item == new_idea_id:
+            raise ValueError("tags must not include the Idea ID")
+        if item != item.lower() or any(ch.isupper() for ch in item):
+            raise ValueError(f"Invalid tag: {item}")
+        if " " in item or "/" in item or "#" in item:
+            raise ValueError(f"Invalid tag: {item}")
+        if item.startswith("-") or item.endswith("-") or "--" in item:
+            raise ValueError(f"Invalid tag: {item}")
+        if len(item) > 24 or not TAG_PATTERN.fullmatch(item):
+            raise ValueError(f"Invalid tag: {item}")
+        if item in RESERVED_TAGS:
+            raise ValueError(f"Reserved tag: {item}")
+        if item in seen:
+            raise ValueError(f"Duplicate tag: {item}")
+        seen.add(item)
+        normalized.append(item)
+    return normalized
+
+
 def parse_topic_markdown(filename: str, text: str) -> dict:
     slug = Path(filename).stem
     title = ""
@@ -496,11 +630,14 @@ def build_maintainer_context(
         },
         "existing_topics": existing_topics,
         "existing_ideas": existing_ideas,
+        "existing_tags": collect_existing_tags(
+            ideas_dir, skip_idea_id=new_idea_id
+        ),
     }
 
 
 def validate_maintainer_decision(data: dict, context: dict) -> dict:
-    required = ("use_topic_slugs", "create_topics", "related_idea_ids")
+    required = ("use_topic_slugs", "create_topics", "related_idea_ids", "tags")
     extra = set(data.keys()) - set(required)
     missing = [key for key in required if key not in data]
     if missing:
@@ -511,6 +648,7 @@ def validate_maintainer_decision(data: dict, context: dict) -> dict:
     use_topic_slugs = data["use_topic_slugs"]
     create_topics = data["create_topics"]
     related_idea_ids = data["related_idea_ids"]
+    tags = data["tags"]
     if not isinstance(use_topic_slugs, list):
         raise ValueError("use_topic_slugs must be a list")
     if not isinstance(create_topics, list):
@@ -570,10 +708,13 @@ def validate_maintainer_decision(data: dict, context: dict) -> dict:
         seen_related.add(idea_id)
         normalized_related.append(idea_id)
 
+    normalized_tags = validate_idea_tags(tags, new_idea_id)
+
     return {
         "use_topic_slugs": normalized_use,
         "create_topics": normalized_create,
         "related_idea_ids": normalized_related,
+        "tags": normalized_tags,
     }
 
 
@@ -673,35 +814,39 @@ def apply_maintainer_decision(
     use_topic_slugs = decision["use_topic_slugs"]
     create_topics = decision["create_topics"]
     related_idea_ids = decision["related_idea_ids"]
-    if not use_topic_slugs and not create_topics and not related_idea_ids:
+    tags = list(decision.get("tags") or [])
+    has_graph = bool(use_topic_slugs or create_topics or related_idea_ids)
+    if not has_graph and not tags:
         return
 
-    topics_dir.mkdir(parents=True, exist_ok=True)
     topic_entries: list[tuple[str, str]] = []
-    for slug in use_topic_slugs:
-        path = topics_dir / f"{slug}.md"
-        parsed = parse_topic_markdown(path.name, path.read_text(encoding="utf-8"))
-        _add_idea_to_topic(path, title, filename)
-        topic_entries.append((parsed["title"], slug))
-    for item in create_topics:
-        path = topics_dir / f"{item['slug']}.md"
-        if not path.exists():
-            path.write_text(
-                topic_markdown(item["title"], title, filename),
-                encoding="utf-8",
-            )
-        else:
-            _add_idea_to_topic(path, title, filename)
-        topic_entries.append((item["title"], item["slug"]))
-
     related_entries: list[tuple[str, str, Path]] = []
-    for idea_id in related_idea_ids:
-        related_path = _idea_file_for_id(ideas_dir, idea_id)
-        parsed = parse_idea_markdown(
-            related_path.name,
-            related_path.read_text(encoding="utf-8"),
-        )
-        related_entries.append((parsed["title"], related_path.name, related_path))
+    if has_graph:
+        topics_dir.mkdir(parents=True, exist_ok=True)
+        for slug in use_topic_slugs:
+            path = topics_dir / f"{slug}.md"
+            parsed = parse_topic_markdown(
+                path.name, path.read_text(encoding="utf-8")
+            )
+            _add_idea_to_topic(path, title, filename)
+            topic_entries.append((parsed["title"], slug))
+        for item in create_topics:
+            path = topics_dir / f"{item['slug']}.md"
+            if not path.exists():
+                path.write_text(
+                    topic_markdown(item["title"], title, filename),
+                    encoding="utf-8",
+                )
+            else:
+                _add_idea_to_topic(path, title, filename)
+            topic_entries.append((item["title"], item["slug"]))
+        for idea_id in related_idea_ids:
+            related_path = _idea_file_for_id(ideas_dir, idea_id)
+            parsed = parse_idea_markdown(
+                related_path.name,
+                related_path.read_text(encoding="utf-8"),
+            )
+            related_entries.append((parsed["title"], related_path.name, related_path))
 
     new_path = ideas_dir / filename
     new_text = new_path.read_text(encoding="utf-8")
@@ -720,6 +865,7 @@ def apply_maintainer_decision(
             f"- [{related_title}]({related_filename})",
             related_filename,
         )
+    new_text = replace_frontmatter_tags(new_text, tags)
     new_path.write_text(new_text, encoding="utf-8")
 
     new_target = filename
