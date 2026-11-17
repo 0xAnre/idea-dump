@@ -976,7 +976,11 @@ def _append_list_item(text: str, heading: str, item_line: str, target: str) -> s
             insert_at = source_idx
             while insert_at > 0 and lines[insert_at - 1].strip() == "":
                 insert_at -= 1
-            lines[insert_at:insert_at] = [heading, "", item_line, ""]
+            block = [heading, "", item_line, ""]
+            if insert_at > 0 and lines[insert_at - 1].strip():
+                block.insert(0, "")
+            del lines[insert_at:source_idx]
+            lines[insert_at:insert_at] = block
             return "\n".join(lines) + "\n"
         body = text.rstrip()
         if body:
