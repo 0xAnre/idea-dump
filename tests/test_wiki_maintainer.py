@@ -240,7 +240,7 @@ class WikiMaintainerFailureTests(unittest.TestCase):
         try:
             with patch.object(
                 main,
-                "maintainer_with_openrouter",
+                "maintainer_decision",
                 AsyncMock(side_effect=ValueError("OpenRouter response empty")),
             ):
                 result = asyncio.run(
@@ -749,7 +749,7 @@ class WikiMaintainerTagTests(unittest.TestCase):
         try:
             with patch.object(
                 main,
-                "_openrouter_chat",
+                "_chat_completion",
                 AsyncMock(
                     return_value=(
                         '{"use_topic_slugs":[],"create_topics":[],'
@@ -788,7 +788,7 @@ class WikiMaintainerTagTests(unittest.TestCase):
         try:
             with patch.object(
                 main,
-                "_openrouter_chat",
+                "_chat_completion",
                 AsyncMock(
                     return_value=(
                         '{"use_topic_slugs":["cooking"],"create_topics":[],'
@@ -833,7 +833,7 @@ class WikiMaintainerTagTests(unittest.TestCase):
         try:
             with patch.object(
                 main,
-                "_openrouter_chat",
+                "_chat_completion",
                 AsyncMock(
                     return_value=(
                         '{"use_topic_slugs":[],"create_topics":[],'

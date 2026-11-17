@@ -26,7 +26,8 @@ flowchart TD
   D --> I[Optional Obsidian]
 ```
 
-Text, text+image, and text+video messages are supported.
+Text, text+image, text+video, and image-only messages are supported.
+An image with no caption is transcribed to text and handled exactly like a text message — the image itself is not kept.
 
 ## Your ideas become a living wiki
 
@@ -76,12 +77,25 @@ See Telegram’s [BotFather](https://core.telegram.org/bots/features#botfather) 
 1. Create an API key at [OpenRouter](https://openrouter.ai/keys).
 2. Pick a chat model from the [model list](https://openrouter.ai/models).
 3. Set `OPENROUTER_API_KEY` to the key and `OPENROUTER_MODEL` to the model slug.
+   OpenRouter is the silent fallback. OpenCode Go is the primary provider (see below).
 
 Any compatible OpenRouter chat model can work. One known working example:
 
 ```text
 deepseek/deepseek-v4-flash-0731
 ```
+
+### Models and fallback
+
+[OpenCode Go](https://opencode.ai/) is the primary provider for every LLM call.
+OpenRouter is a silent fallback: when a call fails (network error, bad response, unparseable JSON), the same request is retried on OpenRouter and only a log line is written.
+
+| Work | Primary (`OPENCODE_*`) | Fallback (`OPENROUTER_*`) |
+|---|---|---|
+| Rewrite + wiki maintainer | `OPENCODE_CHAT_MODEL`, default `deepseek-v4.1-flash` | `OPENROUTER_MODEL` |
+| Image-only messages | `OPENCODE_VISION_MODEL`, default `glm-5.3-flash` | `OPENROUTER_VISION_MODEL` |
+
+`OPENCODE_API_KEY` is required for the primary path. Without it the bot uses OpenRouter only.
 
 ### Environment
 
@@ -93,8 +107,14 @@ Edit `.env` (never commit this file):
 
 ```text
 TELEGRAM_BOT_TOKEN=
+# Primary provider (OpenCode Go)
+OPENCODE_API_KEY=
+OPENCODE_CHAT_MODEL=deepseek-v4.1-flash
+OPENCODE_VISION_MODEL=glm-5.3-flash
+# Silent fallback (OpenRouter)
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=
+OPENROUTER_VISION_MODEL=
 ```
 
 ### Run

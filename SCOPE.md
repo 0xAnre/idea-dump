@@ -10,6 +10,8 @@ The fundamental unit of the system is the Post Idea.
 
 A Post Idea begins as a rough Telegram input in any language. The wiki stores a canonical English Idea plus the original Telegram text as Source provenance.
 
+An image sent without a caption is transcribed to text first and then follows the same path. The image is not stored.
+
 The system preserves individual Ideas while continuously organizing their relationships through Topics and links.
 
 Tags on an Idea are lightweight classification only. They do not replace Topics.

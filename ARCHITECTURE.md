@@ -24,6 +24,8 @@ Telegram is the capture interface.
 
 A message containing a post idea enters the system as raw input in any language. That exact text is later stored as the Idea’s Source.
 
+An image sent without a caption is first transcribed into text by a vision model. From that point it is treated exactly like a text message: the text is normalized like any other capture and the image itself is discarded.
+
 ## Normalization
 
 The LLM converts the input into:

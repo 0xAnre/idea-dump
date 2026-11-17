@@ -36,13 +36,13 @@ class RewritePromptContractTests(unittest.TestCase):
 
 class RewritePassesOriginalTextTests(unittest.TestCase):
     def test_openrouter_user_content_is_unmodified_source(self) -> None:
-        async def fake_chat(system_prompt: str, user_content: str) -> str:
+        async def fake_chat(system_prompt: str, user_content: str, **kwargs) -> str:
             self.assertEqual(system_prompt, main.REWRITE_SYSTEM_PROMPT)
             self.assertEqual(user_content, TURKISH)
             return '{"title":"New Hobby: Cooking","clean_text":"My new hobby is cooking."}'
 
-        with patch.object(main, "_openrouter_chat", fake_chat):
-            title, clean_text = asyncio.run(main.rewrite_with_openrouter(TURKISH))
+        with patch.object(main, "_chat_completion", fake_chat):
+            title, clean_text = asyncio.run(main.rewrite_idea(TURKISH))
         self.assertEqual(title, "New Hobby: Cooking")
         self.assertEqual(clean_text, "My new hobby is cooking.")
 
@@ -112,7 +112,7 @@ class HandleMessageUsesOriginalAsSourceTests(unittest.TestCase):
         rewrite = AsyncMock(
             return_value=("Learn to Cook This Weekend", "I want to learn to cook this weekend.")
         )
-        with patch.object(main, "rewrite_with_openrouter", rewrite), patch.object(
+        with patch.object(main, "rewrite_idea", rewrite), patch.object(
             main,
             "run_wiki_maintainer",
             AsyncMock(

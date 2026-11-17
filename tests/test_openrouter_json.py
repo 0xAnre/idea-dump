@@ -88,7 +88,7 @@ class RewriteFailureDoesNotWriteTests(unittest.TestCase):
         update.message.video = None
         with patch.object(
             main,
-            "rewrite_with_openrouter",
+            "rewrite_idea",
             AsyncMock(side_effect=ValueError("OpenRouter response is not valid JSON")),
         ), patch.object(main, "write_idea_file") as write_idea_file:
             asyncio.run(main.handle_message(update, MagicMock()))

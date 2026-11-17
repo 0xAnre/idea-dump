@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 import re
@@ -17,13 +18,24 @@ load_dotenv(BASE_DIR / ".env")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
+OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL") or OPENROUTER_MODEL
+OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY")
+OPENCODE_CHAT_MODEL = os.getenv("OPENCODE_CHAT_MODEL") or "deepseek-v4.1-flash"
+OPENCODE_VISION_MODEL = os.getenv("OPENCODE_VISION_MODEL") or "glm-5.3-flash"
+OPENCODE_CHAT_URL = (
+    os.getenv("OPENCODE_CHAT_URL")
+    or "https://opencode.ai/inference/go/openai/v1/chat/completions"
+)
+OPENCODE_SESSION_ID = os.getenv("OPENCODE_SESSION_ID") or "idea-dump"
+OPENCODE_USER_AGENT = os.getenv("OPENCODE_USER_AGENT") or "idea-dump/1.0"
 
 if not TELEGRAM_BOT_TOKEN:
     sys.exit("TELEGRAM_BOT_TOKEN is missing")
-if not OPENROUTER_API_KEY:
-    sys.exit("OPENROUTER_API_KEY is missing")
-if not OPENROUTER_MODEL:
-    sys.exit("OPENROUTER_MODEL is missing")
+if not OPENCODE_API_KEY and not (OPENROUTER_API_KEY and OPENROUTER_MODEL):
+    sys.exit(
+        "No LLM backend configured: set OPENCODE_API_KEY "
+        "or OPENROUTER_API_KEY + OPENROUTER_MODEL"
+    )
 
 IDEAS_DIR = BASE_DIR / "knowledge-base" / "ideas"
 TOPICS_DIR = BASE_DIR / "knowledge-base" / "topics"
@@ -49,6 +61,13 @@ Preserve the original meaning and relevant details.
 Do not invent information. Do not add new ideas. Do not unnecessarily expand or reinterpret the message.
 If the input is already English, clean grammar and clarity; do not translate or rephrase it without need.
 Do not return the original Telegram text. That is stored separately as Source."""
+IMAGE_TRANSCRIBE_SYSTEM_PROMPT = """You transcribe the text in an image exactly as written.
+Preserve the original language, line breaks, and punctuation.
+Do not translate, summarize, correct, or add anything.
+Do not describe the image.
+Skip only obvious interface chrome such as status bars, timestamps, and button labels.
+Return JSON only with key "text".
+"text": the transcribed text exactly as written, or an empty string when the image has no readable text."""
 MAINTAINER_SYSTEM_PROMPT = """You are the Wiki Maintainer for Idea Dump.
 Place a new canonical Idea into the existing Markdown wiki.
 Return JSON only with keys "use_topic_slugs", "create_topics", "related_idea_ids", and "tags".
@@ -68,6 +87,7 @@ Tags classify and filter. Topics are wiki nodes. Tags do not replace Topics.
 Avoid synonyms and near-duplicates. No nested tags, no #, no spaces."""
 TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 RESERVED_TAGS = frozenset({"idea", "telegram"})
+SUPPORTED_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 
 
 JSON_PARSE_SNIPPET_LIMIT = 240
@@ -136,35 +156,178 @@ def _parse_title_and_clean_text(content: str | None) -> tuple[str, str]:
     return str(title), str(clean_text)
 
 
-async def _openrouter_chat(system_prompt: str, user_content: str) -> str:
+def _parse_transcription(content: str | None) -> str:
+    data = _parse_json_object(content)
+    text = data.get("text")
+    if text is None:
+        raise ValueError("OpenRouter response missing text")
+    return str(text).strip()
+
+
+async def _chat_completion(
+    system_prompt: str,
+    user_content: str | list,
+    *,
+    url: str,
+    api_key: str,
+    model: str,
+    headers: dict[str, str] | None = None,
+) -> str:
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
     }
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+    request_headers = {
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        **(headers or {}),
     }
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+        response = await client.post(url, headers=request_headers, json=payload)
     if response.status_code != 200:
         raise RuntimeError(
-            f"OpenRouter request failed: {response.status_code} {response.text}"
+            f"LLM request failed: {response.status_code} {response.text}"
         )
     body = response.json()
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise ValueError("OpenRouter response empty") from exc
+        raise ValueError("LLM response empty") from exc
     return content
 
 
-async def rewrite_with_openrouter(original_text: str) -> tuple[str, str]:
-    content = await _openrouter_chat(REWRITE_SYSTEM_PROMPT, original_text)
-    return _parse_title_and_clean_text(content)
+def opencode_headers() -> dict[str, str]:
+    return {
+        "User-Agent": OPENCODE_USER_AGENT,
+        "x-opencode-session": OPENCODE_SESSION_ID,
+    }
+
+
+def _backend(name, url, api_key, model, headers) -> dict:
+    return {
+        "name": name,
+        "url": url,
+        "api_key": api_key,
+        "model": model,
+        "headers": headers,
+    }
+
+
+def text_backends() -> list[dict]:
+    """Text backends in priority order: OpenCode first, OpenRouter fallback."""
+    backends = []
+    if OPENCODE_API_KEY:
+        backends.append(
+            _backend(
+                "opencode",
+                OPENCODE_CHAT_URL,
+                OPENCODE_API_KEY,
+                OPENCODE_CHAT_MODEL,
+                opencode_headers(),
+            )
+        )
+    if OPENROUTER_API_KEY and OPENROUTER_MODEL:
+        backends.append(
+            _backend(
+                "openrouter",
+                OPENROUTER_URL,
+                OPENROUTER_API_KEY,
+                OPENROUTER_MODEL,
+                {},
+            )
+        )
+    if not backends:
+        raise RuntimeError("No text LLM backend configured")
+    return backends
+
+
+def vision_backends() -> list[dict]:
+    """Vision backends in priority order: OpenCode first, OpenRouter fallback."""
+    backends = []
+    if OPENCODE_API_KEY:
+        backends.append(
+            _backend(
+                "opencode",
+                OPENCODE_CHAT_URL,
+                OPENCODE_API_KEY,
+                OPENCODE_VISION_MODEL,
+                opencode_headers(),
+            )
+        )
+    if OPENROUTER_API_KEY and OPENROUTER_VISION_MODEL:
+        backends.append(
+            _backend(
+                "openrouter",
+                OPENROUTER_URL,
+                OPENROUTER_API_KEY,
+                OPENROUTER_VISION_MODEL,
+                {},
+            )
+        )
+    if not backends:
+        raise RuntimeError("No vision LLM backend configured")
+    return backends
+
+
+async def _llm_json(
+    system_prompt: str,
+    user_content: str | list,
+    parse,
+    *,
+    vision: bool = False,
+):
+    """Call the first working backend and parse its JSON, falling back silently."""
+    backends = vision_backends() if vision else text_backends()
+    errors: list[str] = []
+    for backend in backends:
+        try:
+            content = await _chat_completion(
+                system_prompt,
+                user_content,
+                url=backend["url"],
+                api_key=backend["api_key"],
+                model=backend["model"],
+                headers=backend["headers"],
+            )
+            return parse(content)
+        except Exception as exc:
+            errors.append(f"{backend['name']}: {exc}")
+            print(
+                f"LLM backend failed ({backend['name']}): {exc}",
+                flush=True,
+            )
+    raise ValueError("All LLM backends failed: " + "; ".join(errors))
+
+
+async def rewrite_idea(original_text: str) -> tuple[str, str]:
+    return await _llm_json(
+        REWRITE_SYSTEM_PROMPT,
+        original_text,
+        _parse_title_and_clean_text,
+    )
+
+
+async def transcribe_image(
+    image_bytes: bytes,
+    mime_type: str,
+) -> str:
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    user_content = [
+        {"type": "text", "text": "Transcribe the text in this image."},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{encoded}"},
+        },
+    ]
+    return await _llm_json(
+        IMAGE_TRANSCRIBE_SYSTEM_PROMPT,
+        user_content,
+        _parse_transcription,
+        vision=True,
+    )
 
 
 def next_idea_id() -> str:
@@ -929,10 +1092,13 @@ def apply_maintainer_decision(
         related_path.write_text(related_text, encoding="utf-8")
 
 
-async def maintainer_with_openrouter(context: dict) -> dict:
+async def maintainer_decision(context: dict) -> dict:
     user_content = json.dumps(context, ensure_ascii=False, indent=2)
-    content = await _openrouter_chat(MAINTAINER_SYSTEM_PROMPT, user_content)
-    return parse_maintainer_decision(content, context)
+    return await _llm_json(
+        MAINTAINER_SYSTEM_PROMPT,
+        user_content,
+        lambda content: parse_maintainer_decision(content, context),
+    )
 
 
 async def run_wiki_maintainer(
@@ -948,13 +1114,23 @@ async def run_wiki_maintainer(
             clean_text,
             filename,
         )
-        decision = await maintainer_with_openrouter(context)
+        decision = await maintainer_decision(context)
         apply_maintainer_decision(decision, new_idea_id, title, filename)
     except Exception as exc:
         print(f"Wiki Maintainer failed: {exc}", flush=True)
         return None
     print({"wiki_maintainer_decision": decision}, flush=True)
     return decision
+
+
+def message_image(message) -> tuple[str, str] | None:
+    if message.photo:
+        return message.photo[-1].file_id, "image/jpeg"
+    document = getattr(message, "document", None)
+    mime_type = getattr(document, "mime_type", None)
+    if isinstance(mime_type, str) and mime_type.lower() in SUPPORTED_IMAGE_MIME_TYPES:
+        return document.file_id, mime_type.lower()
+    return None
 
 
 def media_extension(file_path: str | None) -> str:
@@ -970,24 +1146,65 @@ async def download_media(bot, file_id: str, dest: Path) -> str:
     return dest.name
 
 
+async def download_media_bytes(bot, file_id: str) -> bytes:
+    telegram_file = await bot.get_file(file_id)
+    return bytes(await telegram_file.download_as_bytearray())
+
+
+async def reply_quietly(message, text: str) -> None:
+    try:
+        await message.reply_text(text)
+    except Exception as exc:
+        print(f"Telegram reply failed: {exc}", flush=True)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if message is None:
         return
 
-    original_text = message.text or message.caption
-    if not original_text:
-        return
-
-    has_image = bool(message.photo)
-    has_video = message.video is not None
-    image_file_id = message.photo[-1].file_id if message.photo else None
+    text_input = message.text or message.caption
+    image = message_image(message)
     video_file_id = message.video.file_id if message.video else None
 
+    if not text_input and image is None:
+        return
+
+    has_image = image is not None
+    has_video = video_file_id is not None
+    image_only = image is not None and not text_input
+    source_text = text_input
+    image_file_id = None
+
+    if image_only:
+        image_source_id, mime_type = image
+        try:
+            image_bytes = await download_media_bytes(context.bot, image_source_id)
+            transcription = await transcribe_image(
+                image_bytes, mime_type
+            )
+        except Exception as exc:
+            print(f"Image transcription failed: {exc}", flush=True)
+            await reply_quietly(message, "Görseli okuyamadım, kaydetmedim.")
+            return
+        transcription = transcription.strip()
+        if not transcription:
+            print({"image_transcription": "empty"}, flush=True)
+            await reply_quietly(
+                message, "Görselde okunacak yazı bulamadım, kaydetmedim."
+            )
+            return
+        text_input = transcription
+        source_text = f"[Read from image]\n\n{transcription}"
+    elif image is not None:
+        image_file_id = image[0]
+
     try:
-        title, clean_text = await rewrite_with_openrouter(original_text)
+        title, clean_text = await rewrite_idea(text_input)
     except ValueError as exc:
         print(f"OpenRouter rewrite failed: {exc}", flush=True)
+        if image_only:
+            await reply_quietly(message, "Fikri oluşturamadım, kaydetmedim.")
         return
 
     idea_id = next_idea_id()
@@ -1015,20 +1232,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         clean_text,
         image_ref,
         video_ref,
-        original_text=original_text,
+        original_text=source_text,
     )
     decision = await run_wiki_maintainer(idea_id, title, clean_text, idea_path.name)
     try_after_capture_index_and_log(idea_id, title, decision)
 
+    if image_only:
+        await reply_quietly(message, f"Kaydettim: {title}")
+
     print(
         {
-            "original_text": original_text,
+            "original_text": source_text,
             "title": title,
             "clean_text": clean_text,
             "idea_id": idea_id,
             "idea_path": str(idea_path),
             "has_image": has_image,
             "has_video": has_video,
+            "image_only": image_only,
             "image_file_id": image_file_id,
             "video_file_id": video_file_id,
         },
